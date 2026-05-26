@@ -260,12 +260,12 @@ input:focus, select:focus, textarea:focus {
   width: 0;
   animation: 
     typing-lynq 1.08s steps(4, end) forwards,
-    blink-caret-lynq 0.67s step-end 3 forwards;
+    blink-caret-lynq 0.67s step-end 3 forwards !important;
 }
 
 @keyframes typing-lynq {
   from { width: 0 }
-  to { width: 100% }
+  to { width: 4.8ch } /* Relative font width fits exactly 4 letters + letter-spacing */
 }
 
 @keyframes blink-caret-lynq {
