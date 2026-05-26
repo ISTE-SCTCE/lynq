@@ -259,8 +259,8 @@ input:focus, select:focus, textarea:focus {
   border-right: 2px solid rgb(22, 192, 122); /* Blinking cursor */
   width: 0;
   animation: 
-    typing-lynq 1.2s steps(4, end) forwards,
-    blink-caret-lynq 0.75s step-end 3 forwards;
+    typing-lynq 1.08s steps(4, end) forwards,
+    blink-caret-lynq 0.67s step-end 3 forwards;
 }
 
 @keyframes typing-lynq {

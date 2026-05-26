@@ -8,7 +8,7 @@ export const SplashScreen: React.FC = () => {
     if (!isLoading) {
       const timer = setTimeout(() => {
         hideSplash();
-      }, 300); // 300ms delay for a snappy, premium visual transition
+      }, 1200); // 1200ms delay to ensure the premium 60fps 'lynq' writing animation completely finishes typing
       return () => clearTimeout(timer);
     }
   }, [isLoading, hideSplash]);
