@@ -175,7 +175,7 @@ export const BudgetOverviewScreen: React.FC = () => {
     if (currentUser && permissions) {
       loadBudgetData();
     }
-  }, [currentUser?.id, permissions]);
+  }, [currentUser?.id, !!permissions]);
 
   const handleReviewRequest = async (id: number, status: 'approved' | 'rejected') => {
     if (!currentUser) return;
@@ -359,22 +359,13 @@ export const BudgetOverviewScreen: React.FC = () => {
           Requests
         </button>
         {isAtLeastTier2 && (
-          <>
-            <button 
-              onClick={() => setActiveTab('ledger')} 
-              className={`budget-tab ${activeTab === 'ledger' ? 'active' : ''}`}
-            >
-              <History size={14} style={{ marginRight: '6px' }} />
-              Expenses
-            </button>
-            <button 
-              onClick={() => setActiveTab('income')} 
-              className={`budget-tab ${activeTab === 'income' ? 'active' : ''}`}
-            >
-              <Wallet size={14} style={{ marginRight: '6px' }} />
-              Income
-            </button>
-          </>
+          <button 
+            onClick={() => setActiveTab('ledger')} 
+            className={`budget-tab ${activeTab === 'ledger' ? 'active' : ''}`}
+          >
+            <History size={14} style={{ marginRight: '6px' }} />
+            Ledger
+          </button>
         )}
         <button 
           onClick={() => setActiveTab('events')} 
@@ -542,201 +533,112 @@ export const BudgetOverviewScreen: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 3: HISTORY LEDGER (EXPENSES) */}
-          {activeTab === 'ledger' && isAtLeastTier2 && (
-            <div className="ledger-tab-flow">
-              {ledgerEntries.length === 0 ? (
-                <div className="ledger-empty">No expense transactions logged.</div>
-              ) : (
-                <div className="ledger-list-container">
-                  <InlineTableControl
-                    data={ledgerEntries.map((entry) => ({
-                      id: entry.id.toString(),
-                      expense: entry.category,
-                      method: entry.source,
-                      amount: entry.amount.toString(),
-                      type: entry.type,
-                      category: entry.category,
-                      transaction_date: entry.transaction_date,
-                      description: entry.description,
-                    }))}
-                    isEditable={permissions?.role >= AppRole.coreExeccom}
-                    onUpdate={async (updatedItem) => {
-                      const amountVal = parseFloat(updatedItem.amount);
-                      if (isNaN(amountVal) || amountVal <= 0) {
-                        alert("Validation Error: Amount must be a positive number.");
-                        return;
-                      }
-                      if (!updatedItem.expense.trim()) {
-                        alert("Validation Error: Category cannot be empty.");
-                        return;
-                      }
-                      if (!updatedItem.method.trim()) {
-                        alert("Validation Error: Source/Method cannot be empty.");
-                        return;
-                      }
+          {/* TAB 3: HISTORY LEDGER (COMBINED GENERAL LEDGER) */}
+          {activeTab === 'ledger' && isAtLeastTier2 && (() => {
+            const combinedEntries = [
+              ...ledgerEntries.map(e => ({ ...e, type: 'Expense' })),
+              ...incomeEntries
+            ].sort((a, b) => new Date(b.transaction_date || '').getTime() - new Date(a.transaction_date || '').getTime());
 
-                      try {
-                        // 1. Fetch original record for audit logging
-                        const { data: originalRecord } = await supabase
-                          .from('financial_ledger')
-                          .select('*')
-                          .eq('id', updatedItem.id)
-                          .single();
+            return (
+              <div className="ledger-tab-flow">
+                {combinedEntries.length === 0 ? (
+                  <div className="ledger-empty">No transactions logged in the general ledger.</div>
+                ) : (
+                  <div className="ledger-list-container">
+                    <InlineTableControl
+                      data={combinedEntries.map((entry) => ({
+                        id: entry.id.toString(),
+                        type: entry.type || 'Expense',
+                        category: entry.category,
+                        method: entry.source || 'Direct',
+                        amount: entry.amount.toString(),
+                        transaction_date: entry.transaction_date,
+                        description: entry.description,
+                      }))}
+                      isEditable={permissions?.role >= AppRole.coreExeccom}
+                      onUpdate={async (updatedItem) => {
+                        const amountVal = parseFloat(updatedItem.amount);
+                        if (isNaN(amountVal) || amountVal <= 0) {
+                          alert("Validation Error: Amount must be a positive number.");
+                          return;
+                        }
+                        if (!updatedItem.category.trim()) {
+                          alert("Validation Error: Category cannot be empty.");
+                          return;
+                        }
+                        if (!updatedItem.method.trim()) {
+                          alert("Validation Error: Source/Method cannot be empty.");
+                          return;
+                        }
 
-                        // 2. Perform database update
-                        const { error } = await supabase
-                          .from('financial_ledger')
-                          .update({
-                            category: updatedItem.expense,
-                            source: updatedItem.method,
-                            amount: amountVal,
-                          })
-                          .eq('id', updatedItem.id);
+                        try {
+                          // Determine if it was legacy income in financial_ledger or in financial_income
+                          const isLegacy = ledgerEntries.some(e => e.id.toString() === updatedItem.id) ||
+                                           (incomeEntries.some(e => e.id.toString() === updatedItem.id) && 
+                                            !incomeEntries.find(e => e.id.toString() === updatedItem.id)?.created_at);
+                          const targetTable = (updatedItem.type === 'Income' && !isLegacy) ? 'financial_income' : 'financial_ledger';
 
-                        if (error) throw error;
+                          // 1. Fetch original record for audit logging
+                          const { data: originalRecord } = await supabase
+                            .from(targetTable)
+                            .select('*')
+                            .eq('id', updatedItem.id)
+                            .single();
 
-                        // 3. Write modification history to audit log table
-                        await supabase.from('ledger_change_history').insert({
-                          ledger_id: parseInt(updatedItem.id),
-                          table_name: 'financial_ledger',
-                          edited_by: currentUser.id,
-                          original_values: originalRecord || {},
-                          updated_values: {
-                            category: updatedItem.expense,
-                            source: updatedItem.method,
-                            amount: amountVal,
-                          }
-                        });
+                          // 2. Perform database update
+                          const { error } = await supabase
+                            .from(targetTable)
+                            .update({
+                              type: updatedItem.type,
+                              category: updatedItem.category,
+                              source: updatedItem.method,
+                              amount: amountVal,
+                            })
+                            .eq('id', updatedItem.id);
 
-                        alert('Ledger transaction updated successfully!');
-                        await loadBudgetData();
-                      } catch (err: any) {
-                        console.error('Update ledger error:', err);
-                        alert('Failed to update ledger transaction: ' + err.message);
-                      }
-                    }}
-                    onDelete={async (id) => {
-                      try {
-                        const { error } = await supabase
-                          .from('financial_ledger')
-                          .delete()
-                          .eq('id', id);
+                          if (error) throw error;
 
-                        if (error) throw error;
-                        alert('Ledger transaction deleted successfully!');
-                        await loadBudgetData();
-                      } catch (err: any) {
-                        console.error('Delete ledger error:', err);
-                        alert('Failed to delete ledger transaction: ' + err.message);
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+                          // 3. Write modification history to audit log table
+                          await supabase.from('ledger_change_history').insert({
+                            ledger_id: parseInt(updatedItem.id),
+                            table_name: targetTable,
+                            edited_by: currentUser.id,
+                            original_values: originalRecord || {},
+                            updated_values: {
+                              type: updatedItem.type,
+                              category: updatedItem.category,
+                              source: updatedItem.method,
+                              amount: amountVal,
+                            }
+                          });
 
-          {/* TAB 3.5: INCOME LEDGER */}
-          {activeTab === 'income' && isAtLeastTier2 && (
-            <div className="ledger-tab-flow">
-              {incomeEntries.length === 0 ? (
-                <div className="ledger-empty">No income transactions logged.</div>
-              ) : (
-                <div className="ledger-list-container">
-                  <InlineTableControl
-                    data={incomeEntries.map((entry) => ({
-                      id: entry.id.toString(),
-                      expense: entry.category,
-                      method: entry.source || 'Direct',
-                      amount: entry.amount.toString(),
-                      type: 'Income',
-                      category: entry.category,
-                      transaction_date: entry.transaction_date,
-                      description: entry.description,
-                    }))}
-                    isEditable={permissions?.role >= AppRole.coreExeccom}
-                    onUpdate={async (updatedItem) => {
-                      const amountVal = parseFloat(updatedItem.amount);
-                      if (isNaN(amountVal) || amountVal <= 0) {
-                        alert("Validation Error: Amount must be a positive number.");
-                        return;
-                      }
-                      if (!updatedItem.expense.trim()) {
-                        alert("Validation Error: Category cannot be empty.");
-                        return;
-                      }
-                      if (!updatedItem.method.trim()) {
-                        alert("Validation Error: Source/Method cannot be empty.");
-                        return;
-                      }
+                          alert('Ledger transaction updated successfully!');
+                          await loadBudgetData();
+                        } catch (err: any) {
+                          console.error('Update ledger error:', err);
+                          alert('Failed to update ledger transaction: ' + err.message);
+                        }
+                      }}
+                      onDelete={async (id) => {
+                        try {
+                          // Delete from both safely to handle new incomes vs legacy ledger records
+                          await supabase.from('financial_income').delete().eq('id', id);
+                          await supabase.from('financial_ledger').delete().eq('id', id);
 
-                      try {
-                        // 1. Fetch original record from database
-                        const isLegacy = incomeEntries.find((e) => e.id.toString() === updatedItem.id && e.type === 'Income');
-                        const targetTable = isLegacy ? 'financial_ledger' : 'financial_income';
-
-                        const { data: originalRecord } = await supabase
-                          .from(targetTable)
-                          .select('*')
-                          .eq('id', updatedItem.id)
-                          .single();
-
-                        // 2. Perform database update
-                        const { error } = await supabase
-                          .from(targetTable)
-                          .update({
-                            category: updatedItem.expense,
-                            source: updatedItem.method,
-                            amount: amountVal,
-                          })
-                          .eq('id', updatedItem.id);
-
-                        if (error) throw error;
-
-                        // 3. Write modification history to audit log table
-                        await supabase.from('ledger_change_history').insert({
-                          ledger_id: parseInt(updatedItem.id),
-                          table_name: targetTable,
-                          edited_by: currentUser.id,
-                          original_values: originalRecord || {},
-                          updated_values: {
-                            category: updatedItem.expense,
-                            source: updatedItem.method,
-                            amount: amountVal,
-                          }
-                        });
-
-                        alert('Income transaction updated successfully!');
-                        await loadBudgetData();
-                      } catch (err: any) {
-                        console.error('Update income error:', err);
-                        alert('Failed to update income transaction: ' + err.message);
-                      }
-                    }}
-                    onDelete={async (id) => {
-                      try {
-                        const isLegacy = incomeEntries.find((e) => e.id.toString() === id && e.type === 'Income');
-                        const targetTable = isLegacy ? 'financial_ledger' : 'financial_income';
-
-                        const { error } = await supabase
-                          .from(targetTable)
-                          .delete()
-                          .eq('id', id);
-
-                        if (error) throw error;
-                        alert('Income transaction deleted successfully!');
-                        await loadBudgetData();
-                      } catch (err: any) {
-                        console.error('Delete income error:', err);
-                        alert('Failed to delete income transaction: ' + err.message);
-                      }
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
+                          alert('Ledger transaction deleted successfully!');
+                          await loadBudgetData();
+                        } catch (err: any) {
+                          console.error('Delete ledger error:', err);
+                          alert('Failed to delete ledger transaction: ' + err.message);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* TAB 4: EVENT SPECIFIC BUDGETS */}
           {activeTab === 'events' && (
