@@ -247,6 +247,6 @@ input:focus, select:focus, textarea:focus {
 .brand-title, .branding-title, .splash-title {
   font-family: 'Qurova', sans-serif !important;
   font-weight: normal !important;
-  text-transform: uppercase;
+  text-transform: lowercase !important;
 }
 
