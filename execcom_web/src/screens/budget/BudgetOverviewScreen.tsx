@@ -419,25 +419,7 @@ export const BudgetOverviewScreen: React.FC = () => {
                 )}
               </GlassCard>
 
-              {/* Quick Deposit Widget */}
-              {permissions.canManageBudget && (
-                <div style={{ marginTop: '20px' }}>
-                  <GlassCard padding="20px" className="flex-center" style={{ flexDirection: 'column', gap: '12px' }}>
-                    <h4 className="chart-card-title flex-center" style={{ justifyContent: 'flex-start', width: '100%', gap: '8px', marginBottom: '8px' }}>
-                      <Wallet size={16} /> Quick Allocation Top-Up
-                    </h4>
-                    <AddCashDisclosure 
-                      initialBalance={remaining}
-                      onConfirm={handleQuickAddCash}
-                      cards={[
-                        { id: '1', last4: '8845', brand: 'VISA', isDefault: true },
-                        { id: '2', last4: '9211', brand: 'MASTERCARD', hasToggle: true }
-                      ]}
-                      presets={[1000, 5000, 10000]}
-                    />
-                  </GlassCard>
-                </div>
-              )}
+
 
               {/* Dynamic Recharts Bar Trends Graph */}
               <GlassCard className="trends-chart-card" padding="20px" style={{ marginTop: '20px' }}>
