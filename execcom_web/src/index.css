@@ -243,11 +243,15 @@ input:focus, select:focus, textarea:focus {
   justify-content: center;
 }
 
-/* Global LYNQ Branding Custom Font Overrides & CSS Writing Animation */
+/* Global LYNQ Branding Custom Font */
 .brand-title, .branding-title, .splash-title {
   font-family: 'Qurova', sans-serif !important;
   font-weight: normal !important;
   text-transform: lowercase !important;
+}
+
+/* CSS Writing/Typewriter Animation - Splash (Intro) and Login Only */
+.brand-title, .splash-title {
   display: inline-block !important;
   vertical-align: middle;
   overflow: hidden !important;
