@@ -1,17 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Shield, Search, Check, AlertCircle, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Users, Shield, Search, AlertCircle, Plus, Trash2, X, Wallet } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { ExecomFeature, AppRole } from '../../core/constants';
 import { NavBar } from '../../shared/components/NavBar';
 
+// Tier 2 core teams that have independent budget visibility control
+const TIER2_TEAM_NAMES = [
+  'Core Execcom',
+  'Activity Coordination Team',
+  'Technical Team',
+  'MD Team',
+  'Marketing',
+  'Design',
+  'Media',
+];
+
 export const PermissionManagerScreen: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, permissions } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'members' | 'execom' | 'core'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'execom' | 'budget' | 'core'>('members');
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -176,26 +187,33 @@ export const PermissionManagerScreen: React.FC = () => {
       </header>
 
       {/* Selector Tabs */}
-      <div className="perm-tabs flex-center">
+      <div className="perm-tabs flex-center" style={{ overflowX: 'auto', gap: '4px' }}>
         <button 
           onClick={() => setActiveTab('members')}
           className={`perm-tab-btn flex-center ${activeTab === 'members' ? 'active' : ''}`}
         >
-          <Users size={15} style={{ marginRight: '6px' }} />
+          <Users size={14} style={{ marginRight: '5px' }} />
           Members
         </button>
         <button 
           onClick={() => setActiveTab('execom')}
           className={`perm-tab-btn flex-center ${activeTab === 'execom' ? 'active' : ''}`}
         >
-          <Shield size={15} style={{ marginRight: '6px' }} />
+          <Shield size={14} style={{ marginRight: '5px' }} />
           Execom
+        </button>
+        <button 
+          onClick={() => setActiveTab('budget')}
+          className={`perm-tab-btn flex-center ${activeTab === 'budget' ? 'active budget-tab-active' : ''}`}
+        >
+          <Wallet size={14} style={{ marginRight: '5px' }} />
+          Budget
         </button>
         <button 
           onClick={() => setActiveTab('core')}
           className={`perm-tab-btn flex-center ${activeTab === 'core' ? 'active' : ''}`}
         >
-          <Shield size={15} style={{ marginRight: '6px' }} />
+          <Shield size={14} style={{ marginRight: '5px' }} />
           Core
         </button>
       </div>
@@ -251,20 +269,21 @@ export const PermissionManagerScreen: React.FC = () => {
           </div>
         </div>
       ) : activeTab === 'execom' ? (
-        // Tab 2: Execom Permission configurations
+        // Tab 2: Execom Permission configurations (non-budget features)
         <div className="forums-tab-flow" style={{ marginTop: '16px' }}>
           {execoms.map((execomItem: any) => (
             <GlassCard key={execomItem.id} className="forum-perm-card" padding="16px" style={{ marginBottom: '14px' }}>
               <h3 className="forum-title-lbl">{execomItem.name}</h3>
-              <span className="forum-subtitle-lbl">Execom Scoped Visibility Flags</span>
+              <span className="forum-subtitle-lbl">Feature access flags</span>
               
               <div className="divider-line"></div>
 
               <div className="toggles-list">
                 {[
-                  { feature: ExecomFeature.viewBudget, label: 'Show Budget Bar' },
-                  { feature: ExecomFeature.requestBudget, label: 'Allow Budget Requests' },
-                  { feature: ExecomFeature.uploadReports, label: 'Allow Report Uploads' }
+                  { feature: ExecomFeature.uploadReports, label: 'Allow Report Uploads' },
+                  { feature: ExecomFeature.createEvents, label: 'Create / Edit Events' },
+                  { feature: ExecomFeature.viewMembers, label: 'View Team Members' },
+                  { feature: ExecomFeature.manageMembers, label: 'Manage Team Members' },
                 ].map((featObj) => {
                   const isAllowed = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === featObj.feature && p.allowed);
                   return (
@@ -284,6 +303,124 @@ export const PermissionManagerScreen: React.FC = () => {
               </div>
             </GlassCard>
           ))}
+        </div>
+      ) : activeTab === 'budget' ? (
+        // Tab 3: Per-group Budget Visibility — Tier 2 teams only
+        <div className="budget-perms-flow" style={{ marginTop: '16px' }}>
+          {/* Info banner */}
+          <div className="budget-info-banner">
+            <Wallet size={15} style={{ flexShrink: 0, color: 'rgb(251,191,36)' }} />
+            <p className="budget-banner-text">
+              Control which Tier 2 teams can view their own budget bar and submit budget requests. Each team is managed independently.
+            </p>
+          </div>
+
+          {/* Tier 2 groups */}
+          {(() => {
+            const tier2execoms = execoms.filter((e: any) => TIER2_TEAM_NAMES.includes(e.name));
+            const otherExecoms = execoms.filter((e: any) => !TIER2_TEAM_NAMES.includes(e.name));
+            return (
+              <>
+                <p className="budget-group-label">Tier 2 — Core Groups</p>
+                {tier2execoms.map((execomItem: any) => {
+                  const canView = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.viewBudget && p.allowed);
+                  const canRequest = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.requestBudget && p.allowed);
+                  return (
+                    <GlassCard key={execomItem.id} className="budget-team-card" padding="16px" style={{ marginBottom: '12px' }}>
+                      <div className="budget-team-header">
+                        <div className="budget-team-avatar">
+                          {execomItem.name[0]}
+                        </div>
+                        <div>
+                          <h3 className="budget-team-name">{execomItem.name}</h3>
+                          <span className="budget-team-sub">Tier 2 · Core Group</span>
+                        </div>
+                        <div className={`budget-status-badge ${canView ? 'badge-active' : 'badge-off'}`}>
+                          {canView ? 'Budget On' : 'Budget Off'}
+                        </div>
+                      </div>
+
+                      <div className="divider-line" style={{ margin: '12px 0' }}></div>
+
+                      <div className="toggles-list">
+                        <div className="toggle-row flex-row-between">
+                          <div>
+                            <span className="toggle-label">View Budget Bar</span>
+                            <span className="toggle-desc">Team members can see the allocated budget</span>
+                          </div>
+                          <label className="switch">
+                            <input
+                              type="checkbox"
+                              checked={canView}
+                              onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.viewBudget, canView)}
+                            />
+                            <span className="slider round"></span>
+                          </label>
+                        </div>
+
+                        <div className="toggle-row flex-row-between">
+                          <div>
+                            <span className="toggle-label">Request Budget</span>
+                            <span className="toggle-desc">Team can submit budget request forms</span>
+                          </div>
+                          <label className="switch">
+                            <input
+                              type="checkbox"
+                              checked={canRequest}
+                              onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.requestBudget, canRequest)}
+                            />
+                            <span className="slider round"></span>
+                          </label>
+                        </div>
+                      </div>
+                    </GlassCard>
+                  );
+                })}
+
+                {otherExecoms.length > 0 && (
+                  <>
+                    <p className="budget-group-label" style={{ marginTop: '20px' }}>Other Teams / Forums</p>
+                    {otherExecoms.map((execomItem: any) => {
+                      const canView = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.viewBudget && p.allowed);
+                      const canRequest = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.requestBudget && p.allowed);
+                      return (
+                        <GlassCard key={execomItem.id} className="budget-team-card other-team-card" padding="14px" style={{ marginBottom: '10px' }}>
+                          <div className="budget-team-header">
+                            <div className="budget-team-avatar other-avatar">
+                              {execomItem.name[0]}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <h3 className="budget-team-name" style={{ fontSize: '14px' }}>{execomItem.name}</h3>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                              <span className="toggle-label" style={{ fontSize: '11.5px' }}>View</span>
+                              <label className="switch">
+                                <input
+                                  type="checkbox"
+                                  checked={canView}
+                                  onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.viewBudget, canView)}
+                                />
+                                <span className="slider round"></span>
+                              </label>
+                              <span className="toggle-label" style={{ fontSize: '11.5px' }}>Request</span>
+                              <label className="switch">
+                                <input
+                                  type="checkbox"
+                                  checked={canRequest}
+                                  onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.requestBudget, canRequest)}
+                                />
+                                <span className="slider round"></span>
+                              </label>
+                            </div>
+                          </div>
+                        </GlassCard>
+                      );
+                    })}
+                  </>
+                )}
+              </>
+            );
+          })()}
         </div>
       ) : (
         // Tab 3: Core Settings and Global Toggles
@@ -471,6 +608,11 @@ export const PermissionManagerScreen: React.FC = () => {
         .perm-tab-btn.active {
           background: rgba(22, 192, 122, 0.15);
           color: rgb(22, 192, 122);
+        }
+
+        .perm-tab-btn.budget-tab-active {
+          background: rgba(251, 191, 36, 0.15);
+          color: rgb(251, 191, 36);
         }
 
         /* Search input bar */
@@ -831,6 +973,119 @@ export const PermissionManagerScreen: React.FC = () => {
           font-size: 13px;
           color: var(--text-primary);
           cursor: pointer;
+        }
+
+        /* ===== Budget Tab ===== */
+        .budget-info-banner {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          background: rgba(251, 191, 36, 0.07);
+          border: 1px solid rgba(251, 191, 36, 0.2);
+          border-radius: 12px;
+          padding: 12px 14px;
+          margin-bottom: 20px;
+        }
+
+        .budget-banner-text {
+          font-size: 12px;
+          color: var(--text-muted);
+          line-height: 1.5;
+          margin: 0;
+          text-align: left;
+        }
+
+        .budget-group-label {
+          font-family: var(--font-space-grotesk);
+          font-weight: 800;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--text-muted);
+          margin: 0 0 10px 4px;
+          text-align: left;
+        }
+
+        .budget-team-card {
+          width: 100%;
+        }
+
+        .other-team-card {
+          opacity: 0.85;
+        }
+
+        .budget-team-header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .budget-team-avatar {
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
+          background: rgba(251, 191, 36, 0.15);
+          color: rgb(251, 191, 36);
+          font-family: var(--font-space-grotesk);
+          font-weight: 800;
+          font-size: 16px;
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .other-avatar {
+          width: 30px;
+          height: 30px;
+          font-size: 13px;
+          background: rgba(255,255,255,0.05);
+          color: var(--text-muted);
+          border-radius: 8px;
+        }
+
+        .budget-team-name {
+          font-family: var(--font-space-grotesk);
+          font-weight: 800;
+          font-size: 15px;
+          color: var(--text-primary);
+          margin: 0 0 2px 0;
+          text-align: left;
+        }
+
+        .budget-team-sub {
+          font-size: 11px;
+          color: var(--text-muted);
+          display: block;
+        }
+
+        .budget-status-badge {
+          margin-left: auto;
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-family: var(--font-space-grotesk);
+          font-weight: 700;
+          font-size: 11px;
+          flex-shrink: 0;
+        }
+
+        .badge-active {
+          background: rgba(22, 192, 122, 0.15);
+          color: rgb(22, 192, 122);
+          border: 1px solid rgba(22, 192, 122, 0.3);
+        }
+
+        .badge-off {
+          background: rgba(255,255,255,0.04);
+          color: var(--text-muted);
+          border: 1px solid var(--border-light);
+        }
+
+        .toggle-desc {
+          display: block;
+          font-size: 10.5px;
+          color: var(--text-muted);
+          margin-top: 2px;
         }
       `}</style>
     </div>
