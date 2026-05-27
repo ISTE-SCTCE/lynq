@@ -21,7 +21,38 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Timeout only for session init — prevents indefinite hang when offline/no session
+// ─── LocalStorage cache helpers ───────────────────────────────────────────────
+const CACHE_KEY = (uid: string) => `lynq_user_cache_${uid}`;
+
+interface UserCache {
+  user: UserModel;
+  memberships: FolderMemberModel[];
+  permissionsMap: Record<number, FolderPermissionModel[]>;
+  cachedAt: number;
+}
+
+function readCache(uid: string): UserCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY(uid));
+    if (!raw) return null;
+    const parsed: UserCache = JSON.parse(raw);
+    // Cache valid for 5 minutes
+    if (Date.now() - parsed.cachedAt > 5 * 60 * 1000) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function writeCache(uid: string, data: Omit<UserCache, 'cachedAt'>) {
+  try {
+    localStorage.setItem(CACHE_KEY(uid), JSON.stringify({ ...data, cachedAt: Date.now() }));
+  } catch { /* quota errors — ignore */ }
+}
+
+function clearCache(uid: string) {
+  try { localStorage.removeItem(CACHE_KEY(uid)); } catch { /* ignore */ }
+}
+
+// ─── Session init with timeout ─────────────────────────────────────────────────
 const getSessionWithTimeout = async (ms: number) => {
   const sessionPromise = supabase.auth.getSession();
   const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), ms));
@@ -30,6 +61,17 @@ const getSessionWithTimeout = async (ms: number) => {
   return result as Awaited<ReturnType<typeof supabase.auth.getSession>>;
 };
 
+// ─── Build permissions map ─────────────────────────────────────────────────────
+function buildPermissionsMap(perms: FolderPermissionModel[]): Record<number, FolderPermissionModel[]> {
+  const map: Record<number, FolderPermissionModel[]> = {};
+  perms.forEach((p) => {
+    if (!map[p.folder_id]) map[p.folder_id] = [];
+    map[p.folder_id].push(p);
+  });
+  return map;
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<UserModel | null>(null);
@@ -39,12 +81,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [isShowingSplash, setIsShowingSplash] = useState(true);
 
-  const hideSplash = useCallback(() => {
-    setIsShowingSplash(false);
+  const hideSplash = useCallback(() => setIsShowingSplash(false), []);
+
+  // Apply a fully loaded user state in one batch
+  const applyUserState = useCallback((
+    parsedUser: UserModel,
+    memberships: FolderMemberModel[],
+    permissionsMap: Record<number, FolderPermissionModel[]>
+  ) => {
+    setCurrentUser(parsedUser);
+    setFolderMemberships(memberships);
+    setFolderPermissions(permissionsMap);
+    setPermissions(new PermissionEngine(parsedUser, memberships, permissionsMap));
   }, []);
 
-  // Load the real user profile + memberships + permissions from DB
-  const loadUserData = useCallback(async (user: User | null) => {
+  const loadUserData = useCallback(async (user: User | null, skipCache = false) => {
     if (!user) {
       setCurrentUser(null);
       setFolderMemberships([]);
@@ -54,80 +105,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    try {
-      // 1. Fetch user profile from DB — always real data
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select()
-        .eq('id', user.id)
-        .single();
+    // ── Step 1: Serve from cache instantly (while fetching fresh in background)
+    if (!skipCache) {
+      const cached = readCache(user.id);
+      if (cached) {
+        applyUserState(cached.user, cached.memberships, cached.permissionsMap);
+        setIsLoading(false);
+        // Background refresh — don't await
+        loadUserData(user, true).catch(console.error);
+        return;
+      }
+    }
 
-      if (userError || !userData) {
-        throw new Error(userError?.message || 'Profile not found.');
+    try {
+      // ── Step 2: Fetch profile + memberships IN PARALLEL (saves ~150ms)
+      const [profileRes, membershipsRes] = await Promise.all([
+        supabase.from('users').select().eq('id', user.id).single(),
+        supabase.from('folder_members')
+          .select('*, users:users(id, name, email, role, post)')
+          .eq('user_id', user.id),
+      ]);
+
+      if (profileRes.error || !profileRes.data) {
+        throw new Error(profileRes.error?.message || 'Profile not found.');
       }
 
-      const parsedUser = userData as UserModel;
-      setCurrentUser(parsedUser);
+      const parsedUser = profileRes.data as UserModel;
+      const memberships = (membershipsRes.data || []) as FolderMemberModel[];
 
-      // 2. Fetch folder memberships
-      const { data: membershipsData } = await supabase
-        .from('folder_members')
-        .select('*, users:users(id, name, email, role, post)')
-        .eq('user_id', user.id);
-
-      const memberships = (membershipsData || []) as FolderMemberModel[];
-      setFolderMemberships(memberships);
-
-      // 3. Fetch folder permissions
+      // ── Step 3: Fetch permissions (needs folder IDs from memberships)
       const folderIds = memberships.map((m) => m.folder_id);
       let permQuery = supabase.from('folder_permissions').select();
-
       if (folderIds.length > 0) {
         permQuery = permQuery.or(`folder_id.eq.0,folder_id.in.(${folderIds.join(',')})`);
       } else {
         permQuery = permQuery.eq('folder_id', 0);
       }
-
       const { data: permData } = await permQuery;
-      const allPerms = (permData || []) as FolderPermissionModel[];
+      const permissionsMap = buildPermissionsMap((permData || []) as FolderPermissionModel[]);
 
-      const permissionsMap: Record<number, FolderPermissionModel[]> = {};
-      allPerms.forEach((p) => {
-        if (!permissionsMap[p.folder_id]) permissionsMap[p.folder_id] = [];
-        permissionsMap[p.folder_id].push(p);
-      });
-      setFolderPermissions(permissionsMap);
+      // ── Step 4: Apply state + write cache
+      applyUserState(parsedUser, memberships, permissionsMap);
+      writeCache(user.id, { user: parsedUser, memberships, permissionsMap });
 
-      // 4. Build permission engine with real role data
-      const engine = new PermissionEngine(parsedUser, memberships, permissionsMap);
-      setPermissions(engine);
     } catch (e) {
       console.error('Error loading user data:', e);
-      setCurrentUser(null);
-      setPermissions(null);
+      if (!skipCache) {
+        // On failure, try serving stale cache rather than showing nothing
+        const stale = readCache(user.id);
+        if (stale) applyUserState(stale.user, stale.memberships, stale.permissionsMap);
+        else { setCurrentUser(null); setPermissions(null); }
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applyUserState]);
 
   const refreshUserData = useCallback(async () => {
-    if (authUser) {
-      await loadUserData(authUser);
-    }
+    if (authUser) await loadUserData(authUser, true); // force bypass cache
   }, [authUser, loadUserData]);
 
   useEffect(() => {
     const initSession = async () => {
       try {
-        // 3s timeout prevents indefinite hang when there's no network/session
         const { data: sessionData } = await getSessionWithTimeout(3000);
         const u = sessionData?.session?.user ?? null;
-
         if (u) {
           setAuthUser(u);
           await loadUserData(u);
         } else {
-          // No active session — go to login
           setAuthUser(null);
           setIsLoading(false);
         }
@@ -140,7 +186,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initSession();
 
-    // Listen for auth state changes (token refresh, sign out from another tab, etc.)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const newUser = session?.user ?? null;
       if (newUser) {
@@ -154,23 +199,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [loadUserData]);
 
   const signIn = async (email: string, password: string) => {
     setIsLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setIsLoading(false);
-      throw error;
-    }
+    if (error) { setIsLoading(false); throw error; }
     setAuthUser(data.user);
-    await loadUserData(data.user);
+    await loadUserData(data.user, true); // fresh load on sign-in — no stale cache
   };
 
   const signOut = async () => {
+    if (authUser) clearCache(authUser.id);
     setIsLoading(true);
     await supabase.auth.signOut();
     setAuthUser(null);
@@ -186,18 +227,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider
       value={{
-        authUser,
-        currentUser,
-        folderMemberships,
-        folderPermissions,
-        permissions,
-        isLoading,
-        isShowingSplash,
-        isAuthenticated,
-        hideSplash,
-        signIn,
-        signOut,
-        refreshUserData,
+        authUser, currentUser, folderMemberships, folderPermissions,
+        permissions, isLoading, isShowingSplash, isAuthenticated,
+        hideSplash, signIn, signOut, refreshUserData,
       }}
     >
       {children}
@@ -207,8 +239,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

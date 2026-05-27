@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Lock, AlertCircle, ShieldCheck, Sparkles } from 'lucide-react';
+import { Mail, Lock, AlertCircle, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { CustomTextField } from '../../shared/components/CustomTextField';
 import { PrimaryButton } from '../../shared/components/PrimaryButton';
@@ -23,18 +23,20 @@ export const LoginScreen: React.FC = () => {
 
   const handleLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const targetEmail = email.trim() || 'siyavarghese29@gmail.com';
-    const targetPassword = password || '123456';
+    if (!email.trim() || !password) {
+      setError('Please enter your email and password.');
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
 
     try {
-      await signIn(targetEmail, targetPassword);
+      await signIn(email.trim(), password);
       navigate('/home');
     } catch (err: any) {
       let msg = err.message || 'An unexpected error occurred.';
-      if (msg.includes('Invalid credentials')) {
+      if (msg.includes('Invalid login credentials') || msg.includes('Invalid credentials')) {
         msg = 'Invalid email or password. Please try again.';
       }
       setError(msg);
@@ -43,37 +45,7 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
-  // Automated Quick Demo Sandbox Login
-  const handleQuickSandboxAccess = async () => {
-    setIsLoading(true);
-    setError(null);
-    
-    // Simulate premium typing effect
-    const demoEmail = 'siyavarghese29@gmail.com';
-    const demoPassword = '••••••••';
-    
-    let currentEmail = '';
-    for (let i = 0; i <= demoEmail.length; i++) {
-      await new Promise(r => setTimeout(r, 20));
-      setEmail(demoEmail.substring(0, i));
-    }
-    
-    for (let i = 0; i <= demoPassword.length; i++) {
-      await new Promise(r => setTimeout(r, 20));
-      setPassword('123456'); // Real password filled
-    }
 
-    try {
-      await signIn(demoEmail, '123456');
-      navigate('/home');
-    } catch (err: any) {
-      console.error(err);
-      // Fail-safe offline login
-      navigate('/home');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className="login-screen-wrapper">
@@ -130,22 +102,7 @@ export const LoginScreen: React.FC = () => {
                 type="submit"
                 isLoading={isLoading}
               />
-              
-              <div className="divider-row flex-center">
-                <span className="divider-line"></span>
-                <span className="divider-text">OR DEVELOPER ACCESS</span>
-                <span className="divider-line"></span>
-              </div>
 
-              <button 
-                type="button" 
-                onClick={handleQuickSandboxAccess} 
-                className="quick-sandbox-btn flex-center"
-                disabled={isLoading}
-              >
-                <Sparkles size={14} className="sparkle-icon" />
-                <span>Quick Sandbox Access</span>
-              </button>
             </div>
           </form>
         </GlassCard>

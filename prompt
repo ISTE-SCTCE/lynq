@@ -1,0 +1,203 @@
+Prompt:
+
+Build a full-stack application for managing an organization’s Execcom structure with strict role-based access control.
+
+Use an existing design system (do not generate styles, only structure and components).
+
+👥 ROLES
+Member
+Execcom
+Core Execcom (Admin)
+🔐 AUTH
+Email/password authentication
+Role stored in database
+Middleware for route protection
+Role-based rendering on frontend
+🧠 CORE SYSTEMS
+1. Role Engine
+Enforce access control
+Dynamically change UI + permissions
+2. Dashboard Aggregation
+Compute:
+total members
+execcom count
+events
+projects
+financial summary
+3. Member Management
+CRUD users
+Promote/Demote roles
+Role change updates UI instantly
+4. Event System
+Create/edit/delete events
+Calendar integration
+Attach reports/files
+5. Budget System
+Store total budget
+Allocate per forum
+Handle requests:
+submit → approve/reject
+Update remaining budget dynamically
+6. Permission Control
+Feature toggles stored in DB
+Core members can enable/disable access
+Enforced globally
+7. File Upload
+Drag-and-drop upload
+Preview before download
+Storage integration (Supabase / R2)
+8. Messaging System
+Real-time messaging
+Store conversations
+Role-based access
+🧩 TECH STACK
+
+Frontend:
+
+Next.js / React
+Uses existing design system components
+
+Backend:
+
+Supabase (Auth + DB + Storage + Realtime)
+🔒 SECURITY
+JWT-based auth
+Row-level security
+Input validation
+🚀 DEPLOYMENT
+Frontend: flutter
+Backend: Supabase
+i want it as an android app
+
+ui
+
+Prompt Title:
+Execcom Management App – Multi-Role Structured UI (Design System Ready)
+
+Prompt:
+
+Design a responsive, modern UI for an "Execcom Management App" that strictly follows an existing design system (do NOT define colors, typography, or spacing tokens—reuse from system).
+
+The app supports three user roles:
+
+Normal Members
+Execcom Members
+Core Execcom Members (Admin)
+
+The UI must dynamically adapt based on role (role-based rendering).
+
+👤 NORMAL MEMBER UI
+Home Dashboard
+Header with organization name + profile avatar
+Highlight section for latest activity
+Sections:
+Upcoming Events (card list with date + CTA)
+Recent Activities (horizontal scroll or list)
+Announcements (priority section)
+Events Page
+Tab layout:
+Upcoming Events
+Past Events
+Event cards include:
+Title
+Date
+Short description
+CTA: View Details
+Gallery Page
+Responsive grid layout
+Filter by event/category
+Click → full preview modal
+Membership Page
+Membership card:
+Membership ID
+Expiry date
+Plan type
+Status indicator
+Profile Page
+Editable user details
+Logout option
+🧑‍💼 EXECOM MEMBER UI
+
+Includes everything from Normal Member UI plus:
+
+Additional Features
+Upload event reports (form + file upload)
+View internal announcements
+Limited member directory (read-only)
+Restrictions
+No role management
+No permission control
+No full budget access
+👑 CORE EXECOM UI (ADMIN)
+Main Dashboard
+Top summary cards:
+Total members
+Total execcom members
+Active projects
+Upcoming events
+Total budget
+Financial Overview
+Graph components:
+Budget trend (line/area chart)
+Allocation breakdown (pie/donut chart)
+Activity Feed
+Recent actions:
+Events created
+Reports uploaded
+Budget updates
+Quick Actions (prominent placement)
+Add Member
+Create Event
+Upload Report
+Manage Permissions
+Manage Execcom
+📊 MEMBER MANAGEMENT
+Table/list view with filters:
+Normal members
+Execcom members
+Core members
+Member detail panel:
+Edit info
+Promote/Demote role
+Start chat
+Include search + sort
+📅 EVENT MANAGEMENT
+Calendar view (monthly)
+Event markers on dates
+Create/Edit event modal:
+Title
+Date
+Description
+Budget allocation
+File/image upload
+💰 BUDGET MANAGEMENT
+Treasury overview:
+Total / allocated / remaining
+Allocation per forum
+Budget request system:
+Submit request (forum heads)
+Approve/Reject (core only)
+Graphs for:
+Spending trends
+Remaining funds
+📢 ADMIN TOOLS (MORE SECTION)
+Announcements management
+Reports upload & viewing
+Permission control:
+Toggle feature access per role
+Activity logs
+⚙️ SETTINGS
+Profile management
+Password update
+Certificate/document uploads
+Preferences
+💬 CHAT SYSTEM
+One-to-one messaging
+Conversation UI (threaded)
+Member ↔ Execcom communication
+⚡ UX REQUIREMENTS
+Fully responsive (mobile-first, desktop-ready)
+Role-based UI switching (critical)
+Component-driven layout
+Modal-based actions
+Clean navigation (sidebar or bottom nav depending on screen size)

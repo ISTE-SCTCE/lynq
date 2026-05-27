@@ -1,0 +1,5 @@
+
+# APK files
+apk/
+debug_apk/
+*.apk

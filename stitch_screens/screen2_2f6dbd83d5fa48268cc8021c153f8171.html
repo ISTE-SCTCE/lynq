@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html class="scroll-smooth" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ISTE &amp; SWAAS - Student Community</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#D5E0FC", // The Light Blue form the button
+                        "primary-dark": "#3B5BDB", 
+                        secondary: "#E9F679", // The Lime highlight
+                        darkgreen: "#1B2B25", // The main dark text color
+                        "background-light": "#F6F3EE",
+                        "background-dark": "#0A1210",
+                        "surface-light": "#FFFFFF",
+                        "surface-dark": "#15201D",
+                        "text-light": "#1B2B25",
+                        "text-dark": "#EAEFEA",
+                    },
+                    fontFamily: {
+                        display: ["Space Grotesk", "sans-serif"],
+                        body: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "1rem",
+                        'pill': '9999px',
+                        'xl': '1.5rem',
+                        '2xl': '2rem',
+                    },
+                    boxShadow: {
+                        'soft': '0 10px 40px -10px rgba(0,0,0,0.08)',
+                        'glow': '0 0 20px rgba(213, 224, 252, 0.5)',
+                    }
+                },
+            },
+        };
+    </script>
+<style>
+        .hand-drawn-circle {
+            position: absolute;
+            z-index: -1;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-2deg);
+            width: 110%;
+            height: 140%;
+            border: 3px solid #D5E0FC;
+            border-radius: 60% 40% 50% 70% / 60% 50% 60% 40%;
+            pointer-events: none;
+        }
+        .dark .hand-drawn-circle {
+            border-color: #3B5BDB;
+            opacity: 0.4;
+        }
+        .highlight-mark {
+            position: absolute;
+            z-index: -1;
+            bottom: 2px;
+            left: -5px;
+            width: calc(100% + 10px);
+            height: 40%;
+            background-color: #E9F679;
+            transform: rotate(-1deg);
+            opacity: 0.8;
+        }
+        .dark .highlight-mark {
+            background-color: #4A5D23;
+            opacity: 0.6;
+        }@keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(2deg); }
+            100% { transform: translateY(0px) rotate(0deg); }
+        }
+        .floating-element {
+            animation: float 6s ease-in-out infinite;
+        }.no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark font-body transition-colors duration-300">
+<header class="fixed top-0 w-full z-50 bg-background-light/90 dark:bg-background-dark/90 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-800/50">
+<div class="max-w-md mx-auto px-6 h-16 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 bg-darkgreen dark:bg-white rounded-full flex items-center justify-center text-white dark:text-darkgreen font-bold font-display text-sm">
+                    IS
+                </div>
+<span class="font-display font-bold text-lg tracking-tight">ISTE x SWAAS</span>
+</div>
+<button class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
+<span class="material-icons">menu</span>
+</button>
+</div>
+</header>
+<main class="pt-24 pb-32 max-w-md mx-auto overflow-hidden">
+<section class="px-6 mb-16 text-center relative">
+<h1 class="font-display font-bold text-4xl md:text-5xl leading-[1.15] text-darkgreen dark:text-white mb-6">
+                Unlock 
+                <span class="relative inline-block mx-1">
+                    potential
+                    <span class="hand-drawn-circle"></span>
+</span>
+                with your own world-class student community.
+            </h1>
+<p class="text-gray-600 dark:text-gray-400 text-lg mb-8 leading-relaxed">
+                Empowering students through technical excellence and welfare support at SCTCE.
+            </p>
+<div class="relative w-full aspect-square max-w-[300px] mx-auto mb-8 floating-element">
+<div class="absolute inset-0 bg-gradient-to-tr from-primary to-blue-200 dark:from-blue-900 dark:to-primary rounded-full blur-3xl opacity-30 transform scale-75"></div>
+<img alt="Abstract 3D shapes representing creativity and structure" class="relative z-10 w-full h-full object-contain drop-shadow-2xl mix-blend-multiply dark:mix-blend-normal dark:opacity-90" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBYndCuu0Wdgb9mzZuX_PnaU9iD2WmmSjYld57D1JNkPwe15ZF3CVuokpj5avPJzuhYQhPcAg9367gIMx4vGEOemhgfuZXGYJxT7I3Mj4sOY4MwHjeJAQIfOqfmalapti2t5_5Z-SG2_MwQR9i4zjd8eWMl7irJ-22mUmrvALGI842ujAR3ghPB1tYsmnKmY4EAtQcvd9zYAmZtlplOD2Z1zVUvLPgYhqnVwnAgH8EpWi2duuYb9VSbAECB1hZ6aPIgDo8bUvz_t936"/>
+<div class="absolute top-10 -left-4 bg-white dark:bg-surface-dark px-3 py-1 rounded-lg shadow-lg rotate-[-6deg] z-20 border border-gray-100 dark:border-gray-700">
+<span class="font-display font-bold text-sm">Innovation</span>
+</div>
+<div class="absolute bottom-10 -right-4 bg-secondary dark:bg-lime-900 text-darkgreen dark:text-white px-3 py-1 rounded-lg shadow-lg rotate-[4deg] z-20">
+<span class="font-display font-bold text-sm">Welfare</span>
+</div>
+</div>
+</section>
+<section class="px-6 mb-12">
+<div class="flex items-center gap-2 mb-6 opacity-60">
+<span class="h-px w-8 bg-current"></span>
+<span class="uppercase tracking-widest text-xs font-bold">ISTE Chapter</span>
+</div>
+<div class="space-y-6">
+<div class="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-soft border border-gray-100 dark:border-gray-800">
+<h2 class="font-display font-bold text-2xl mb-3">Who We Are</h2>
+<p class="text-gray-600 dark:text-gray-400">The International Society for Technical Education (ISTE) Students Chapter at SCTCE is dedicated to providing quality training and technical guidance to students.</p>
+</div>
+<div class="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-6 px-6">
+<div class="min-w-[260px] bg-darkgreen text-white p-6 rounded-2xl flex flex-col justify-between h-64 relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-32 h-32 bg-secondary rounded-full blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity"></div>
+<span class="material-icons text-4xl opacity-80">visibility</span>
+<div>
+<h3 class="font-display font-bold text-xl mb-2">Our Vision</h3>
+<p class="text-sm text-gray-300">To be a leading professional society aimed at the qualitative growth of students.</p>
+</div>
+</div>
+<div class="min-w-[260px] bg-primary dark:bg-blue-900 p-6 rounded-2xl flex flex-col justify-between h-64 relative overflow-hidden">
+<span class="material-icons text-4xl text-darkgreen dark:text-white opacity-80">flag</span>
+<div>
+<h3 class="font-display font-bold text-xl mb-2 text-darkgreen dark:text-white">Our Mission</h3>
+<p class="text-sm text-gray-800 dark:text-gray-200">To create a conducive environment for technical excellence and comprehensive development.</p>
+</div>
+</div>
+</div>
+<div class="bg-white dark:bg-surface-dark rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-soft">
+<h3 class="font-display font-bold text-xl mb-4">What We Do</h3>
+<ul class="space-y-3">
+<li class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-gray-700 dark:text-gray-300">Technical Workshops</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-gray-700 dark:text-gray-300">Hackathons &amp; Coding Competitions</span>
+</li>
+<li class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="text-gray-700 dark:text-gray-300">Industry Interactions</span>
+</li>
+</ul>
+</div>
+</div>
+</section>
+<section class="px-6 py-12 bg-darkgreen rounded-3xl mx-2 text-white relative overflow-hidden mb-24">
+<div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#ffffff 1px, transparent 1px); background-size: 20px 20px;"></div>
+<div class="relative z-10">
+<div class="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center mb-6 backdrop-blur-sm">
+<span class="material-icons text-secondary">diversity_3</span>
+</div>
+<h2 class="font-display font-bold text-3xl mb-4">
+                    SWAAS <br/>
+<span class="text-secondary text-xl font-normal">Student Welfare And Support Society</span>
+</h2>
+<p class="text-gray-300 mb-8 leading-relaxed">
+                    More than just a society, SWAAS is a family dedicated to the holistic well-being of every student, ensuring no one is left behind.
+                </p>
+<div class="mb-8">
+<h3 class="font-display font-bold text-xl mb-4 border-b border-white/20 pb-2">Core Pillars</h3>
+<div class="grid grid-cols-1 gap-4">
+<div class="bg-white/5 p-4 rounded-xl border border-white/10 hover:bg-white/10 transition-colors">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-icons text-secondary">school</span>
+<h4 class="font-bold">Academic Support</h4>
+</div>
+<p class="text-sm text-gray-400">Peer tutoring and resource sharing to boost academic performance.</p>
+</div>
+<div class="bg-white/5 p-4 rounded-xl border border-white/10 hover:bg-white/10 transition-colors">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-icons text-secondary">build</span>
+<h4 class="font-bold">Skill Development</h4>
+</div>
+<p class="text-sm text-gray-400">Practical workshops to bridge the gap between theory and industry.</p>
+</div>
+</div>
+</div>
+<button class="w-full py-4 bg-white text-darkgreen font-bold rounded-xl hover:bg-gray-100 transition-colors">
+                    Learn more about SWAAS
+                </button>
+</div>
+</section>
+</main>
+<div class="fixed bottom-6 left-0 w-full px-4 z-40">
+<div class="bg-darkgreen dark:bg-surface-dark text-white p-2 rounded-[2rem] shadow-2xl flex items-center justify-between border border-gray-700 dark:border-gray-600 max-w-md mx-auto">
+<div class="pl-5 pr-2 hidden sm:block">
+<span class="text-sm font-medium text-gray-300">Ready to join?</span>
+</div>
+<div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+<a class="px-5 py-3 rounded-full text-sm font-semibold bg-white/10 hover:bg-white/20 transition-colors text-white whitespace-nowrap" href="#pricing">
+                    Events
+                </a>
+<a class="px-6 py-3 rounded-full text-sm font-bold bg-secondary text-darkgreen hover:brightness-110 transition-all shadow-glow flex items-center gap-2 flex-1 sm:flex-none justify-center" href="#join">
+                    Join Chapter
+                    <span class="material-icons text-sm">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+<footer class="bg-background-light dark:bg-background-dark py-12 text-center text-gray-500 text-sm border-t border-gray-200 dark:border-gray-800">
+<p>© 2023 ISTE x SWAAS SCTCE.</p>
+<div class="flex justify-center gap-4 mt-4">
+<a class="hover:text-darkgreen dark:hover:text-white transition-colors" href="#">Instagram</a>
+<a class="hover:text-darkgreen dark:hover:text-white transition-colors" href="#">LinkedIn</a>
+<a class="hover:text-darkgreen dark:hover:text-white transition-colors" href="#">Contact</a>
+</div>
+</footer>
+
+</body></html>
