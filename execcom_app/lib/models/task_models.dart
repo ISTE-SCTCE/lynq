@@ -100,7 +100,7 @@ class TaskModel {
   final String? description;
   final String? createdBy;
   final List<String> assignedTo;
-  final int? forumId;
+  final int? execomId;
   final DateTime? deadline;
   final TaskPriority priority;
   final TaskStatus status;
@@ -116,7 +116,7 @@ class TaskModel {
     this.description,
     this.createdBy,
     this.assignedTo = const [],
-    this.forumId,
+    this.execomId,
     this.deadline,
     this.priority = TaskPriority.medium,
     this.status = TaskStatus.pending,
@@ -132,7 +132,7 @@ class TaskModel {
     description: json['description'] as String?,
     createdBy: json['created_by'] as String?,
     assignedTo: (json['assigned_to'] as List<dynamic>?)?.cast<String>() ?? [],
-    forumId: json['forum_id'] as int?,
+    execomId: json['execom_id'] as int?,
     deadline: json['deadline'] != null ? DateTime.parse(json['deadline']) : null,
     priority: TaskPriority.fromString(json['priority'] as String?),
     status: TaskStatus.fromString(json['status'] as String?),
@@ -149,7 +149,7 @@ class TaskModel {
     'title': title,
     'description': description,
     'assigned_to': assignedTo,
-    'forum_id': forumId,
+    'execom_id': execomId,
     'deadline': deadline?.toIso8601String(),
     'priority': priority.dbValue,
     'status': status.dbValue,

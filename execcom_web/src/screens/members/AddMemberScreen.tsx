@@ -75,9 +75,9 @@ export const AddMemberScreen: React.FC = () => {
       }
 
       alert('Member enrolled successfully! Default password is: isteISTE2026');
-      const folderParam = searchParams.get('folder');
-      if (folderParam) {
-        navigate(`/folders/${folderParam}`);
+      const execomParam = searchParams.get('execom');
+      if (execomParam) {
+        navigate(`/execom/${execomParam}`);
       } else {
         navigate('/members');
       }

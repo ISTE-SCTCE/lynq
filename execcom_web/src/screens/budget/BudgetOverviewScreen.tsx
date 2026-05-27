@@ -40,8 +40,8 @@ export const BudgetOverviewScreen: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { currentUser, permissions } = useAuth();
   
-  const folderParam = searchParams.get('folder');
-  const folderId = folderParam ? parseInt(folderParam) : null;
+  const execomParam = searchParams.get('execom');
+  const execomId = execomParam ? parseInt(execomParam) : null;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'requests' | 'ledger' | 'income' | 'events'>('overview');
   const [isLoading, setIsLoading] = useState(true);
@@ -49,7 +49,7 @@ export const BudgetOverviewScreen: React.FC = () => {
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
   const [incomeEntries, setIncomeEntries] = useState<any[]>([]);
   const [eventBudgets, setEventBudgets] = useState<EventBudgetModel[]>([]);
-  const [myFolderIds, setMyFolderIds] = useState<number[]>([]);
+  const [myExecomIds, setMyExecomIds] = useState<number[]>([]);
 
   // Allocation metrics
   const [forumAllocation, setForumAllocation] = useState(0);
@@ -69,7 +69,7 @@ export const BudgetOverviewScreen: React.FC = () => {
   const [transCategory, setTransCategory] = useState('Marketing');
   const [transSource, setTransSource] = useState('');
   const [transDesc, setTransDesc] = useState('');
-  const [transFolder, setTransFolder] = useState<number | ''>('');
+  const [transExecom, setTransExecom] = useState<number | ''>('');
 
   // Sync Category with Transaction Type
   useEffect(() => {
@@ -82,20 +82,20 @@ export const BudgetOverviewScreen: React.FC = () => {
     try {
       // 1. Fetch user's folder memberships
       const { data: memberData } = await supabase
-        .from('folder_members')
-        .select('folder_id')
+        .from('execom_members')
+        .select('execom_id')
         .eq('user_id', currentUser.id);
 
-      const fIds = (memberData || []).map((m) => m.folder_id);
-      setMyFolderIds(fIds);
-      if (fIds.length > 0 && transFolder === '') {
-        setTransFolder(fIds[0]);
+      const fIds = (memberData || []).map((m) => m.execom_id);
+      setMyExecomIds(fIds);
+      if (fIds.length > 0 && transExecom === '') {
+        setTransExecom(fIds[0]);
       }
 
       // 2. Load requests
       let reqQuery = supabase.from('budget_requests').select('*');
       if (!permissions.isAtLeastTier2) {
-        reqQuery = reqQuery.in('folder_id', fIds);
+        reqQuery = reqQuery.in('execom_id', fIds);
       }
       const { data: reqData } = await reqQuery.order('created_at', { ascending: false });
       const loadedReqs = (reqData || []) as BudgetRequestModel[];
@@ -104,7 +104,7 @@ export const BudgetOverviewScreen: React.FC = () => {
       // 3. Load Financial Ledger Data (Expenses)
       let ledgerQuery = supabase.from('financial_ledger').select('*');
       if (!permissions.canViewTotalBudget) {
-        ledgerQuery = ledgerQuery.in('folder_id', fIds);
+        ledgerQuery = ledgerQuery.in('execom_id', fIds);
       }
       const { data: ledgerData } = await ledgerQuery.order('transaction_date', { ascending: false });
       const expenseEntries = (ledgerData || []).filter((e: any) => e.type !== 'Income');
@@ -113,7 +113,7 @@ export const BudgetOverviewScreen: React.FC = () => {
       // 4. Load Financial Income Data
       let incomeQuery = supabase.from('financial_income').select('*');
       if (!permissions.canViewTotalBudget) {
-        incomeQuery = incomeQuery.in('folder_id', fIds);
+        incomeQuery = incomeQuery.in('execom_id', fIds);
       }
       const { data: incomeData } = await incomeQuery.order('transaction_date', { ascending: false });
       const parsedIncomeEntries = incomeData || [];
@@ -143,12 +143,12 @@ export const BudgetOverviewScreen: React.FC = () => {
       setTotalApproved(approvedSum);
       setTotalPlanned(plannedSum);
 
-      // 5. Fetch Scoped Forum Allocations
+      // 5. Fetch Scoped Execom Allocations
       if (!permissions.canViewTotalBudget && fIds.length > 0) {
         const { data: allocationData } = await supabase
-          .from('forum_budgets')
+          .from('execom_budgets')
           .select('allocated_amount')
-          .in('folder_id', fIds);
+          .in('execom_id', fIds);
 
         const allocationSum = (allocationData || []).reduce(
           (sum, row) => sum + (parseFloat(row.allocated_amount) || 0), 
@@ -244,7 +244,7 @@ export const BudgetOverviewScreen: React.FC = () => {
   const handleNewTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(transAmount);
-    if (isNaN(amt) || !transFolder || !currentUser) return;
+    if (isNaN(amt) || !transExecom || !currentUser) return;
 
     setIsActionLoading(true);
     try {
@@ -254,7 +254,7 @@ export const BudgetOverviewScreen: React.FC = () => {
           category: transCategory,
           source: transSource.trim() || 'Direct',
           description: transDesc.trim(),
-          folder_id: transFolder,
+          execom_id: transExecom,
           transaction_date: new Date().toISOString(),
           created_by: currentUser.id,
         });
@@ -266,7 +266,7 @@ export const BudgetOverviewScreen: React.FC = () => {
           category: transCategory,
           source: transSource.trim() || 'Direct',
           description: transDesc.trim(),
-          folder_id: transFolder,
+          execom_id: transExecom,
           transaction_date: new Date().toISOString(),
           created_by: currentUser.id,
         });
@@ -287,14 +287,14 @@ export const BudgetOverviewScreen: React.FC = () => {
   };
 
   const handleQuickAddCash = async (amount: number) => {
-    if (!currentUser || !transFolder) return;
+    if (!currentUser || !transExecom) return;
     try {
       const { error } = await supabase.from('financial_income').insert({
         amount: amount,
         category: 'Miscellaneous',
         source: 'Quick Balance Top-Up',
         description: 'Deposited allocation funds via quick dashboard top-up widget',
-        folder_id: transFolder,
+        execom_id: transExecom,
         transaction_date: new Date().toISOString(),
         created_by: currentUser.id,
       });
@@ -392,7 +392,7 @@ export const BudgetOverviewScreen: React.FC = () => {
 
                 <div className="summary-split-row">
                   <div className="split-col">
-                    <span className="split-label">{isAtLeastTier2 ? 'Total Income' : 'Forum Allocation'}</span>
+                    <span className="split-label">{isAtLeastTier2 ? 'Total Income' : 'Execom Allocation'}</span>
                     <span className="split-val income">
                       ₹{isAtLeastTier2 ? totalIncome.toLocaleString() : forumAllocation.toLocaleString()}
                     </span>
@@ -768,13 +768,13 @@ export const BudgetOverviewScreen: React.FC = () => {
               <div style={{ marginBottom: '12px' }}>
                 <label className="modal-input-label">Forum Scoped association</label>
                 <select
-                  value={transFolder}
-                  onChange={(e) => setTransFolder(parseInt(e.target.value))}
+                  value={transExecom}
+                  onChange={(e) => setTransExecom(parseInt(e.target.value))}
                   className="modal-select-field"
-                  disabled={myFolderIds.length === 0}
+                  disabled={myExecomIds.length === 0}
                 >
-                  {myFolderIds.map((fid) => (
-                    <option key={fid} value={fid}>Forum Folder #{fid}</option>
+                  {myExecomIds.map((fid) => (
+                    <option key={fid} value={fid}>Execom Team #{fid}</option>
                   ))}
                 </select>
               </div>

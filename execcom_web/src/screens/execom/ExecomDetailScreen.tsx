@@ -1,74 +1,75 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Settings, Calendar, Wallet, FileText, Users, Plus, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Calendar, Wallet, FileText, Plus, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
+import { ExecomModel } from '../../models/types';
 
-export const FolderDetailScreen: React.FC = () => {
+export const ExecomDetailScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const folderId = parseInt(id || '0');
+  const execomId = parseInt(id || '0');
   const navigate = useNavigate();
   const { permissions, currentUser } = useAuth();
-  const [folder, setFolder] = useState<any>(null);
+  const [execom, setExecom] = useState<ExecomModel | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!folderId || !currentUser) return;
+    if (!execomId || !currentUser) return;
     
-    const fetchFolderDetails = async () => {
+    const fetchExecomDetails = async () => {
       setIsLoading(true);
       try {
-        // 1. Fetch folder info
-        const { data: folderData, error: fError } = await supabase
-          .from('folders')
+        // 1. Fetch execom info
+        const { data: execomData, error: eError } = await supabase
+          .from('execom')
           .select('*')
-          .eq('id', folderId)
+          .eq('id', execomId)
           .single();
 
-        if (fError) throw fError;
-        setFolder(folderData);
+        if (eError) throw eError;
+        setExecom(execomData as ExecomModel);
 
-        // 2. Fetch folder members joined with users
+        // 2. Fetch execom members joined with users
         const { data: membersData, error: mError } = await supabase
-          .from('folder_members')
+          .from('execom_members')
           .select('*, users:users(id, name, email, role, post)')
-          .eq('folder_id', folderId);
+          .eq('execom_id', execomId);
 
         if (mError) throw mError;
         setMembers(membersData || []);
       } catch (e) {
         console.error('Error fetching details:', e);
-        navigate('/folders');
+        navigate('/execom');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchFolderDetails();
-  }, [folderId, currentUser, navigate]);
+    fetchExecomDetails();
+  }, [execomId, currentUser, navigate]);
 
   if (!currentUser || !permissions || isLoading) {
-    return <div className="folders-loading">Loading folder details...</div>;
+    return <div className="execom-loading">Loading execom details...</div>;
   }
 
-  if (!folder) return null;
+  if (!execom) return null;
 
-  const canManageFolderPermissions = permissions.canManageFolderPermissions;
-  const canManageMembers = permissions.canManageMembersInFolder(folderId);
+  const canManageExecomPermissions = permissions.canManageExecomPermissions;
+  const canManageMembers = permissions.canManageMembersInExecom(execomId);
 
   return (
-    <div className="folder-detail-container">
+    <div className="execom-detail-container">
       <header className="page-header">
-        <button onClick={() => navigate('/folders')} className="back-button">
+        <button onClick={() => navigate('/execom')} className="back-button">
           <ArrowLeft size={20} />
         </button>
-        <h2 className="page-title">{folder.name}</h2>
-        {canManageFolderPermissions ? (
+        <h2 className="page-title">{execom.name}</h2>
+        {canManageExecomPermissions ? (
           <button 
-            onClick={() => navigate(`/folders/${folderId}/permissions`)} 
+            onClick={() => navigate(`/execom/${execomId}/permissions`)} 
             className="config-permissions-btn"
           >
             <ShieldAlert size={20} />
@@ -80,35 +81,35 @@ export const FolderDetailScreen: React.FC = () => {
 
       {/* Scoped Actions Grid */}
       <section className="detail-actions-block">
-        <h3 className="section-title">FORUM RESOURCES</h3>
+        <h3 className="section-title">EXECOM RESOURCES</h3>
         <div className="resources-grid">
-          {permissions.canDoInFolder(folderId, 'view_events') && (
+          {permissions.canDoInExecom(execomId, 'view_events') && (
             <GlassCard 
               className="resource-card" 
               padding="16px" 
-              onClick={() => navigate(`/events?folder=${folderId}`)}
+              onClick={() => navigate(`/events?execom=${execomId}`)}
             >
               <Calendar size={22} style={{ color: '#16c07a', marginBottom: '10px' }} />
               <span className="resource-name">Events</span>
             </GlassCard>
           )}
 
-          {permissions.canViewBudgetInFolder(folderId) && (
+          {permissions.canViewBudgetInExecom(execomId) && (
             <GlassCard 
               className="resource-card" 
               padding="16px" 
-              onClick={() => navigate(`/budget?folder=${folderId}`)}
+              onClick={() => navigate(`/budget?execom=${execomId}`)}
             >
               <Wallet size={22} style={{ color: '#6a8b54', marginBottom: '10px' }} />
               <span className="resource-name">Budget</span>
             </GlassCard>
           )}
 
-          {permissions.canDoInFolder(folderId, 'view_reports') && (
+          {permissions.canDoInExecom(execomId, 'view_reports') && (
             <GlassCard 
               className="resource-card" 
               padding="16px" 
-              onClick={() => navigate(`/reports?folder=${folderId}`)}
+              onClick={() => navigate(`/reports?execom=${execomId}`)}
             >
               <FileText size={22} style={{ color: '#4a7c6e', marginBottom: '10px' }} />
               <span className="resource-name">Reports</span>
@@ -117,13 +118,13 @@ export const FolderDetailScreen: React.FC = () => {
         </div>
       </section>
 
-      {/* Folder Members Section */}
+      {/* Execom Members Section */}
       <section className="members-section-block" style={{ marginBottom: '40px' }}>
         <div className="section-title-row">
-          <h3 className="section-title">FORUM MEMBERS ({members.length})</h3>
+          <h3 className="section-title">EXECOM MEMBERS ({members.length})</h3>
           {canManageMembers && (
             <button 
-              onClick={() => navigate(`/members-enroll?folder=${folderId}`)} 
+              onClick={() => navigate(`/members-enroll?execom=${execomId}`)} 
               className="add-member-pill flex-center"
             >
               <Plus size={14} style={{ marginRight: '4px' }} /> Add
@@ -142,7 +143,7 @@ export const FolderDetailScreen: React.FC = () => {
                 </div>
                 <div className="member-info">
                   <span className="member-name">{u.name}</span>
-                  <span className="member-post">{member.folder_role || u.post || 'Executive Member'}</span>
+                  <span className="member-post">{member.execom_role || u.post || 'Executive Member'}</span>
                 </div>
                 <span className="member-role-badge">
                   {u.role.replace('_', ' ')}
@@ -156,7 +157,7 @@ export const FolderDetailScreen: React.FC = () => {
       <NavBar />
 
       <style>{`
-        .folder-detail-container {
+        .execom-detail-container {
           padding: 16px 20px;
         }
 
@@ -173,6 +174,9 @@ export const FolderDetailScreen: React.FC = () => {
           display: flex;
           align-items: center;
           justify-content: center;
+          background: none;
+          border: none;
+          cursor: pointer;
         }
 
         .page-title {
@@ -216,6 +220,7 @@ export const FolderDetailScreen: React.FC = () => {
           align-items: center;
           justify-content: center;
           text-align: center;
+          cursor: pointer;
         }
 
         .resource-name {
@@ -233,6 +238,8 @@ export const FolderDetailScreen: React.FC = () => {
           font-family: var(--font-space-grotesk);
           font-weight: 700;
           font-size: 12px;
+          border: none;
+          cursor: pointer;
         }
 
         .members-list {

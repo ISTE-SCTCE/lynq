@@ -21,10 +21,10 @@ export const MoreScreen: React.FC = () => {
       visible: true
     },
     {
-      icon: Folder,
-      title: 'Forums & Folders',
-      subtitle: 'Manage folder-based teams',
-      route: '/folders',
+      icon: Shield,
+      title: 'Execom Teams',
+      subtitle: 'Manage Execom-based teams',
+      route: '/execom',
       color: '#268aff',
       visible: true
     },

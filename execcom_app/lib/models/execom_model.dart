@@ -1,4 +1,4 @@
-class FolderModel {
+class ExecomModel {
   final int id;
   final String name;
   final String? description;
@@ -8,7 +8,7 @@ class FolderModel {
   final String? createdBy;
   final DateTime? createdAt;
 
-  const FolderModel({
+  const ExecomModel({
     required this.id,
     required this.name,
     this.description,
@@ -19,7 +19,7 @@ class FolderModel {
     this.createdAt,
   });
 
-  factory FolderModel.fromJson(Map<String, dynamic> json) => FolderModel(
+  factory ExecomModel.fromJson(Map<String, dynamic> json) => ExecomModel(
     id: json['id'] as int,
     name: json['name'] as String,
     description: json['description'] as String?,
@@ -39,32 +39,32 @@ class FolderModel {
   };
 }
 
-class FolderMemberModel {
+class ExecomMemberModel {
   final int id;
-  final int folderId;
+  final int execomId;
   final String userId;
-  final String folderRole;
+  final String execomRole;
   final DateTime? joinedAt;
-  final String? folderName; // populated via join
+  final String? execomName; // populated via join
   final UserSummary? user; // populated via join
 
-  const FolderMemberModel({
+  const ExecomMemberModel({
     required this.id,
-    required this.folderId,
+    required this.execomId,
     required this.userId,
-    required this.folderRole,
+    required this.execomRole,
     this.joinedAt,
-    this.folderName,
+    this.execomName,
     this.user,
   });
 
-  factory FolderMemberModel.fromJson(Map<String, dynamic> json) => FolderMemberModel(
+  factory ExecomMemberModel.fromJson(Map<String, dynamic> json) => ExecomMemberModel(
     id: json['id'] as int,
-    folderId: json['folder_id'] as int,
+    execomId: json['execom_id'] as int,
     userId: json['user_id'] as String,
-    folderRole: json['folder_role'] as String? ?? 'member',
+    execomRole: json['execom_role'] as String? ?? 'member',
     joinedAt: json['joined_at'] != null ? DateTime.parse(json['joined_at']) : null,
-    folderName: json['folders'] != null ? json['folders']['name'] as String? : null,
+    execomName: json['execom'] != null ? json['execom']['name'] as String? : null,
     user: json['users'] != null ? UserSummary.fromJson(json['users']) : null,
   );
 }
@@ -93,22 +93,22 @@ class UserSummary {
   );
 }
 
-class FolderPermissionModel {
+class ExecomPermissionModel {
   final int id;
-  final int folderId;
+  final int execomId;
   final String feature;
   final bool allowed;
 
-  const FolderPermissionModel({
+  const ExecomPermissionModel({
     required this.id,
-    required this.folderId,
+    required this.execomId,
     required this.feature,
     required this.allowed,
   });
 
-  factory FolderPermissionModel.fromJson(Map<String, dynamic> json) => FolderPermissionModel(
+  factory ExecomPermissionModel.fromJson(Map<String, dynamic> json) => ExecomPermissionModel(
     id: json['id'] as int,
-    folderId: json['folder_id'] as int,
+    execomId: json['execom_id'] as int,
     feature: json['feature'] as String,
     allowed: json['allowed'] as bool? ?? false,
   );

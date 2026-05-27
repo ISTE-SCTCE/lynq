@@ -4,7 +4,7 @@ class EventModel {
   final DateTime? date;
   final String? description;
   final String? type;
-  final int? folderId;
+  final int? execomId;
   final String? createdBy;
   final DateTime? createdAt;
   final int memberPrice;
@@ -20,7 +20,7 @@ class EventModel {
     this.date,
     this.description,
     this.type,
-    this.folderId,
+    this.execomId,
     this.createdBy,
     this.createdAt,
     this.memberPrice = 0,
@@ -37,7 +37,7 @@ class EventModel {
     date: json['date'] != null ? DateTime.parse(json['date']) : null,
     description: json['description'] as String?,
     type: json['type'] as String?,
-    folderId: json['folder_id'] as int?,
+    execomId: json['execom_id'] as int?,
     createdBy: json['created_by'] as String?,
     createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
     memberPrice: json['member_price'] as int? ?? 0,
@@ -53,7 +53,7 @@ class EventModel {
     'date': date?.toIso8601String().split('T').first,
     'description': description,
     'type': type,
-    'folder_id': folderId,
+    'execom_id': execomId,
     'created_by': createdBy,
     'member_price': memberPrice,
     'non_member_price': nonMemberPrice,
@@ -90,7 +90,7 @@ class AnnouncementModel {
 
 class BudgetRequestModel {
   final int id;
-  final int folderId;
+  final int execomId;
   final String requestedBy;
   final double amount;
   final String? reason;
@@ -102,7 +102,7 @@ class BudgetRequestModel {
 
   const BudgetRequestModel({
     required this.id,
-    required this.folderId,
+    required this.execomId,
     required this.requestedBy,
     required this.amount,
     this.reason,
@@ -115,7 +115,7 @@ class BudgetRequestModel {
 
   factory BudgetRequestModel.fromJson(Map<String, dynamic> json) => BudgetRequestModel(
     id: json['id'] as int,
-    folderId: json['folder_id'] as int,
+    execomId: json['execom_id'] as int,
     requestedBy: json['requested_by'] as String,
     amount: (json['amount'] as num).toDouble(),
     reason: json['reason'] as String?,
@@ -160,7 +160,7 @@ class MessageModel {
   final String? conversationId;
   final DateTime? readAt;
   final DateTime? timestamp;
-  final int? folderId;
+  final int? execomId;
   final String? senderName;
   final bool isDeleted;
 
@@ -168,7 +168,7 @@ class MessageModel {
     required this.id,
     this.senderId,
     this.receiverId,
-    this.folderId,
+    this.execomId,
     required this.content,
     this.conversationId,
     this.readAt,
@@ -181,7 +181,7 @@ class MessageModel {
     id: json['id'] as int,
     senderId: json['sender_id'] as String?,
     receiverId: json['receiver_id'] as String?,
-    folderId: json['folder_id'] as int?,
+    execomId: json['execom_id'] as int?,
     content: json['content'] as String? ?? '',
     conversationId: json['conversation_id'] as String?,
     readAt: json['read_at'] != null ? DateTime.parse(json['read_at']) : null,
@@ -194,8 +194,8 @@ class MessageModel {
 class ConversationModel {
   final String conversationId;
   final String? otherUserId;
-  final int? folderId;
-  final String? folderName;
+  final int? execomId;
+  final String? execomName;
   final String lastMessage;
   final DateTime lastMessageTime;
   final int unreadCount;
@@ -206,8 +206,8 @@ class ConversationModel {
   const ConversationModel({
     required this.conversationId,
     this.otherUserId,
-    this.folderId,
-    this.folderName,
+    this.execomId,
+    this.execomName,
     required this.lastMessage,
     required this.lastMessageTime,
     required this.unreadCount,
@@ -219,11 +219,11 @@ class ConversationModel {
   factory ConversationModel.fromJson(Map<String, dynamic> json, String currentUserId) {
     return ConversationModel(
       conversationId: json['conversation_id'] as String? ?? '',
-      otherUserId: json['folder_id'] != null 
+      otherUserId: json['execom_id'] != null 
           ? null 
           : ((json['sender_id'] == currentUserId) ? json['receiver_id'] as String : json['sender_id'] as String),
-      folderId: json['folder_id'] as int?,
-      folderName: json['folder_name'] as String?,
+      execomId: json['execom_id'] as int?,
+      execomName: json['folder_name'] as String?,
       lastMessage: json['last_message'] as String? ?? '',
       lastMessageTime: DateTime.parse(json['last_message_time'] ?? DateTime.now().toIso8601String()),
       unreadCount: json['unread_count'] as int? ?? 0,
@@ -238,7 +238,7 @@ class ReportModel {
   final int id;
   final int? eventId;
   final String? uploadedBy;
-  final int? folderId;
+  final int? execomId;
   final String title;
   final String content;
   final String? fileUrl;
@@ -249,7 +249,7 @@ class ReportModel {
     required this.id,
     this.eventId,
     this.uploadedBy,
-    this.folderId,
+    this.execomId,
     required this.title,
     required this.content,
     this.fileUrl,
@@ -261,7 +261,7 @@ class ReportModel {
     id: json['id'] as int,
     eventId: json['event_id'] as int?,
     uploadedBy: json['uploaded_by'] as String?,
-    folderId: json['folder_id'] as int?,
+    execomId: json['execom_id'] as int?,
     title: json['title'] as String? ?? '',
     content: json['content'] as String? ?? '',
     fileUrl: json['file_url'] as String?,

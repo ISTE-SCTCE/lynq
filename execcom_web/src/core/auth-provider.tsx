@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from './supabase-client';
-import { UserModel, FolderMemberModel, FolderPermissionModel } from '../models/types';
+import { UserModel, ExecomMemberModel, ExecomPermissionModel } from '../models/types';
 import { PermissionEngine } from './permission-engine';
 
 interface AuthContextType {
   authUser: User | null;
   currentUser: UserModel | null;
-  folderMemberships: FolderMemberModel[];
-  folderPermissions: Record<number, FolderPermissionModel[]>;
+  execomMemberships: ExecomMemberModel[];
+  execomPermissions: Record<number, ExecomPermissionModel[]>;
   permissions: PermissionEngine | null;
   isLoading: boolean;
   isShowingSplash: boolean;
@@ -26,8 +26,8 @@ const CACHE_KEY = (uid: string) => `lynq_user_cache_${uid}`;
 
 interface UserCache {
   user: UserModel;
-  memberships: FolderMemberModel[];
-  permissionsMap: Record<number, FolderPermissionModel[]>;
+  memberships: ExecomMemberModel[];
+  permissionsMap: Record<number, ExecomPermissionModel[]>;
   cachedAt: number;
 }
 
@@ -62,11 +62,11 @@ const getSessionWithTimeout = async (ms: number) => {
 };
 
 // ─── Build permissions map ─────────────────────────────────────────────────────
-function buildPermissionsMap(perms: FolderPermissionModel[]): Record<number, FolderPermissionModel[]> {
-  const map: Record<number, FolderPermissionModel[]> = {};
+function buildPermissionsMap(perms: ExecomPermissionModel[]): Record<number, ExecomPermissionModel[]> {
+  const map: Record<number, ExecomPermissionModel[]> = {};
   perms.forEach((p) => {
-    if (!map[p.folder_id]) map[p.folder_id] = [];
-    map[p.folder_id].push(p);
+    if (!map[p.execom_id]) map[p.execom_id] = [];
+    map[p.execom_id].push(p);
   });
   return map;
 }
@@ -75,8 +75,8 @@ function buildPermissionsMap(perms: FolderPermissionModel[]): Record<number, Fol
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<UserModel | null>(null);
-  const [folderMemberships, setFolderMemberships] = useState<FolderMemberModel[]>([]);
-  const [folderPermissions, setFolderPermissions] = useState<Record<number, FolderPermissionModel[]>>({});
+  const [execomMemberships, setExecomMemberships] = useState<ExecomMemberModel[]>([]);
+  const [execomPermissions, setExecomPermissions] = useState<Record<number, ExecomPermissionModel[]>>({});
   const [permissions, setPermissions] = useState<PermissionEngine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isShowingSplash, setIsShowingSplash] = useState(true);
@@ -86,20 +86,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Apply a fully loaded user state in one batch
   const applyUserState = useCallback((
     parsedUser: UserModel,
-    memberships: FolderMemberModel[],
-    permissionsMap: Record<number, FolderPermissionModel[]>
+    memberships: ExecomMemberModel[],
+    permissionsMap: Record<number, ExecomPermissionModel[]>
   ) => {
     setCurrentUser(parsedUser);
-    setFolderMemberships(memberships);
-    setFolderPermissions(permissionsMap);
+    setExecomMemberships(memberships);
+    setExecomPermissions(permissionsMap);
     setPermissions(new PermissionEngine(parsedUser, memberships, permissionsMap));
   }, []);
 
   const loadUserData = useCallback(async (user: User | null, skipCache = false) => {
     if (!user) {
       setCurrentUser(null);
-      setFolderMemberships([]);
-      setFolderPermissions({});
+      setExecomMemberships([]);
+      setExecomPermissions({});
       setPermissions(null);
       setIsLoading(false);
       return;
@@ -121,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ── Step 2: Fetch profile + memberships IN PARALLEL (saves ~150ms)
       const [profileRes, membershipsRes] = await Promise.all([
         supabase.from('users').select().eq('id', user.id).single(),
-        supabase.from('folder_members')
+        supabase.from('execom_members')
           .select('*, users:users(id, name, email, role, post)')
           .eq('user_id', user.id),
       ]);
@@ -131,18 +131,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const parsedUser = profileRes.data as UserModel;
-      const memberships = (membershipsRes.data || []) as FolderMemberModel[];
+      const memberships = (membershipsRes.data || []) as ExecomMemberModel[];
 
-      // ── Step 3: Fetch permissions (needs folder IDs from memberships)
-      const folderIds = memberships.map((m) => m.folder_id);
-      let permQuery = supabase.from('folder_permissions').select();
-      if (folderIds.length > 0) {
-        permQuery = permQuery.or(`folder_id.eq.0,folder_id.in.(${folderIds.join(',')})`);
+      // ── Step 3: Fetch permissions (needs execom IDs from memberships)
+      const execomIds = memberships.map((m) => m.execom_id);
+      let permQuery = supabase.from('execom_permissions').select();
+      if (execomIds.length > 0) {
+        permQuery = permQuery.or(`execom_id.eq.0,execom_id.in.(${execomIds.join(',')})`);
       } else {
-        permQuery = permQuery.eq('folder_id', 0);
+        permQuery = permQuery.eq('execom_id', 0);
       }
       const { data: permData } = await permQuery;
-      const permissionsMap = buildPermissionsMap((permData || []) as FolderPermissionModel[]);
+      const permissionsMap = buildPermissionsMap((permData || []) as ExecomPermissionModel[]);
 
       // ── Step 4: Apply state + write cache
       applyUserState(parsedUser, memberships, permissionsMap);
@@ -216,8 +216,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setAuthUser(null);
     setCurrentUser(null);
-    setFolderMemberships([]);
-    setFolderPermissions({});
+    setExecomMemberships([]);
+    setExecomPermissions({});
     setPermissions(null);
     setIsLoading(false);
   };
@@ -227,7 +227,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider
       value={{
-        authUser, currentUser, folderMemberships, folderPermissions,
+        authUser, currentUser, execomMemberships, execomPermissions,
         permissions, isLoading, isShowingSplash, isAuthenticated,
         hideSplash, signIn, signOut, refreshUserData,
       }}

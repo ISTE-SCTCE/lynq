@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
-import '../models/folder_model.dart';
+import '../models/execom_model.dart';
 import 'constants.dart';
 import 'permission_engine.dart';
 
@@ -10,8 +10,8 @@ class AuthProvider extends ChangeNotifier {
 
   User? _authUser;
   UserModel? _currentUser;
-  List<FolderMemberModel> _folderMemberships = [];
-  Map<int, List<FolderPermissionModel>> _folderPermissions = {};
+  List<ExecomMemberModel> _folderMemberships = [];
+  Map<int, List<ExecomPermissionModel>> _folderPermissions = {};
   PermissionEngine? _permissionEngine;
   bool _isLoading = true;
   bool _isShowingSplash = true;
@@ -85,43 +85,43 @@ class AuthProvider extends ChangeNotifier {
 
       // 2. Fetch folder memberships with timeout
       final membershipData = await _supabase
-          .from('folder_members')
+          .from('execom_members')
           .select('*, users!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('user_id', _authUser!.id)
           .timeout(const Duration(seconds: 15));
       _folderMemberships = (membershipData as List)
-          .map((e) => FolderMemberModel.fromJson(e))
+          .map((e) => ExecomMemberModel.fromJson(e))
           .toList();
 
       // 3. Fetch folder permissions
       // We always fetch global permissions (ID 0)
-      // and permissions for folders the user belongs to.
-      final folderIds = _folderMemberships.map((m) => m.folderId).toList();
-      var permQuery = _supabase.from('folder_permissions').select();
+      // and permissions for execom the user belongs to.
+      final execomIds = _folderMemberships.map((m) => m.execomId).toList();
+      var permQuery = _supabase.from('execom_permissions').select();
       
       if (_currentUser!.role == 'chairman' || _currentUser!.role == 'vice_chairman' || _currentUser!.role == 'core_execcom') {
         // Core members might need to see all forum permissions for management
         // but for app logic, let's at least include 0 and their memberships.
         // Actually, if they are Core, they should probably have access to all permission toggles.
-        permQuery = permQuery.or('folder_id.eq.0,folder_id.in.(${folderIds.join(",")})');
+        permQuery = permQuery.or('execom_id.eq.0,execom_id.in.(${execomIds.join(",")})');
       } else {
-        permQuery = permQuery.or('folder_id.eq.0,folder_id.in.(${folderIds.join(",")})');
+        permQuery = permQuery.or('execom_id.eq.0,execom_id.in.(${execomIds.join(",")})');
       }
       
       final permData = await permQuery.timeout(const Duration(seconds: 15));
       final allPerms = (permData as List)
-          .map((e) => FolderPermissionModel.fromJson(e))
+          .map((e) => ExecomPermissionModel.fromJson(e))
           .toList();
 
       _folderPermissions = {};
       for (final p in allPerms) {
-        _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+        _folderPermissions.putIfAbsent(p.execomId, () => []).add(p);
       }
 
       // 4. Build permission engine
       _permissionEngine = PermissionEngine(
         user: _currentUser!,
-        userFolderMemberships: _folderMemberships,
+        userExecomMemberships: _folderMemberships,
         folderPermissions: _folderPermissions,
       );
     } catch (e) {

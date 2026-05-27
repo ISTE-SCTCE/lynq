@@ -5,20 +5,20 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/auth_provider.dart';
 import '../../core/theme.dart';
-import '../../models/folder_model.dart';
+import '../../models/execom_model.dart';
 import '../../shared/widgets/glass_card.dart';
 
-class FolderDetailScreen extends StatefulWidget {
-  final int folderId;
-  const FolderDetailScreen({super.key, required this.folderId});
+class ExecomDetailScreen extends StatefulWidget {
+  final int execomId;
+  const ExecomDetailScreen({super.key, required this.execomId});
 
   @override
-  State<FolderDetailScreen> createState() => _FolderDetailScreenState();
+  State<ExecomDetailScreen> createState() => _ExecomDetailScreenState();
 }
 
-class _FolderDetailScreenState extends State<FolderDetailScreen> {
-  FolderModel? _folder;
-  List<FolderMemberModel> _members = [];
+class _ExecomDetailScreenState extends State<ExecomDetailScreen> {
+  ExecomModel? _folder;
+  List<ExecomMemberModel> _members = [];
   bool _isLoading = true;
   RealtimeChannel? _membersChannel;
 
@@ -30,15 +30,15 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
   }
 
   void _setupRealtime() {
-    _membersChannel = Supabase.instance.client.channel('public:folder_members:${widget.folderId}');
+    _membersChannel = Supabase.instance.client.channel('public:folder_members:${widget.execomId}');
     _membersChannel!.onPostgresChanges(
       event: PostgresChangeEvent.all,
       schema: 'public',
-      table: 'folder_members',
+      table: 'execom_members',
       filter: PostgresChangeFilter(
         type: PostgresChangeFilterType.eq,
-        column: 'folder_id',
-        value: widget.folderId,
+        column: 'execom_id',
+        value: widget.execomId,
       ),
       callback: (payload) {
         if (mounted) _loadData(); // Reload completely as it joins `users`
@@ -55,15 +55,15 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
   Future<void> _loadData() async {
     final supabase = Supabase.instance.client;
     try {
-      final folderData = await supabase.from('folders').select().eq('id', widget.folderId).single();
-      _folder = FolderModel.fromJson(folderData);
+      final folderData = await supabase.from('execom').select().eq('id', widget.execomId).single();
+      _folder = ExecomModel.fromJson(folderData);
 
       final memberData = await supabase
-          .from('folder_members')
+          .from('execom_members')
           .select('*, users!folder_members_user_id_fkey(id, name, email, role, post)')
-          .eq('folder_id', widget.folderId)
-          .order('folder_role');
-      _members = (memberData as List).map((e) => FolderMemberModel.fromJson(e)).toList();
+          .eq('execom_id', widget.execomId)
+          .order('execom_role');
+      _members = (memberData as List).map((e) => ExecomMemberModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Error loading folder: $e');
     }
@@ -94,7 +94,7 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
             IconButton(
               icon: const Icon(Icons.tune_outlined),
               tooltip: 'Permissions',
-              onPressed: () => context.push('/folders/${widget.folderId}/permissions'),
+              onPressed: () => context.push('/execom/${widget.execomId}/permissions'),
             ),
         ],
       ),
@@ -161,8 +161,8 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _actionChip(Icons.event_outlined, 'Events', () => context.push('/events?folder=${widget.folderId}')),
-              if (perms?.canUploadReportInFolder(widget.folderId) ?? false)
+              _actionChip(Icons.event_outlined, 'Events', () => context.push('/events?folder=${widget.execomId}')),
+              if (perms?.canUploadReportInExecom(widget.execomId) ?? false)
                 _actionChip(Icons.upload_file_outlined, 'Upload Report', () => context.push('/reports/upload')),
             ],
           ),
@@ -187,10 +187,10 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
                   children: [
                     CircleAvatar(
                       radius: 20,
-                      backgroundColor: _roleColor(m.folderRole).withValues(alpha: 0.2),
+                      backgroundColor: _roleColor(m.execomRole).withValues(alpha: 0.2),
                       child: Text(
                         (m.user?.name ?? '?').substring(0, 1).toUpperCase(),
-                        style: TextStyle(color: _roleColor(m.folderRole), fontWeight: FontWeight.bold),
+                        style: TextStyle(color: _roleColor(m.execomRole), fontWeight: FontWeight.bold),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -199,19 +199,19 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(m.user?.name ?? 'Unknown', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                          Text(m.user?.post ?? m.folderRole, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                          Text(m.user?.post ?? m.execomRole, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
                         ],
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _roleColor(m.folderRole).withValues(alpha: 0.15),
+                        color: _roleColor(m.execomRole).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        m.folderRole.replaceAll('_', ' '),
-                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _roleColor(m.folderRole)),
+                        m.execomRole.replaceAll('_', ' '),
+                        style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: _roleColor(m.execomRole)),
                       ),
                     ),
                   ],

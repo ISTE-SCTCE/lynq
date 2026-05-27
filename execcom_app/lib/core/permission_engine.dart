@@ -1,17 +1,17 @@
 import '../models/user_model.dart';
-import '../models/folder_model.dart';
+import '../models/execom_model.dart';
 import 'constants.dart';
 
 /// Central permission resolver.
 /// Checks: role level → folder membership → folder permissions → post-specific rules.
 class PermissionEngine {
   final UserModel user;
-  final List<FolderMemberModel> userFolderMemberships;
-  final Map<int, List<FolderPermissionModel>> folderPermissions;
+  final List<ExecomMemberModel> userExecomMemberships;
+  final Map<int, List<ExecomPermissionModel>> folderPermissions;
 
   const PermissionEngine({
     required this.user,
-    this.userFolderMemberships = const [],
+    this.userExecomMemberships = const [],
     this.folderPermissions = const {},
   });
 
@@ -40,10 +40,10 @@ class PermissionEngine {
   bool get canRemoveMembers => isAtLeastTier1;
   bool get canEditMembers => isTier1;
   bool get canAssignRoles => isAtLeastTier1;
-  bool get canManageFolders => isAtLeastTier1;
+  bool get canManageExecoms => isAtLeastTier1;
   bool get canManageGlobalPermissions => role == AppRole.chairman;
-  bool get canManageFolderPermissions => isAtLeastTier1;
-  bool get canManagePermissions => canManageGlobalPermissions || canManageFolderPermissions;
+  bool get canManageExecomPermissions => isAtLeastTier1;
+  bool get canManagePermissions => canManageGlobalPermissions || canManageExecomPermissions;
 
   /// Fundamental check for committee leadership (Heads, Chairs, Secretaries)
   bool get _isCommitteeLead {
@@ -68,16 +68,16 @@ class PermissionEngine {
   }
 
   /// Can manage members within a specific folder/forum
-  bool canManageMembersInFolder(int folderId) {
+  bool canManageMembersInExecom(int execomId) {
     if (isAtLeastTier1) return true;
     // Core members assigned to a folder can manage its members
-    if (isAtLeastTier2 && isMemberOfFolder(folderId)) return true;
+    if (isAtLeastTier2 && isMemberOfExecom(execomId)) return true;
     // Forum Chairs/Heads can manage their own members
-    final fRole = folderRoleIn(folderId)?.toLowerCase() ?? '';
+    final fRole = execomRoleIn(execomId)?.toLowerCase() ?? '';
     return fRole.contains('chair') || fRole.contains('head');
   }
 
-  /// Is a specific feature allowed globally (folder_id: 0)
+  /// Is a specific feature allowed globally (execom_id: 0)
   bool isFeatureEnabledGlobally(String feature) {
     final perms = folderPermissions[0] ?? [];
     final perm = perms.where((p) => p.feature == feature).firstOrNull;
@@ -121,27 +121,27 @@ class PermissionEngine {
     return false;
   }
 
-  // ── Folder-scoped permissions ──
+  // ── Execom-scoped permissions ──
 
   /// Is this user a member of a specific folder?
-  bool isMemberOfFolder(int folderId) =>
-      userFolderMemberships.any((m) => m.folderId == folderId);
+  bool isMemberOfExecom(int execomId) =>
+      userExecomMemberships.any((m) => m.execomId == execomId);
 
   /// Get the user's role within a folder
-  String? folderRoleIn(int folderId) {
-    final membership = userFolderMemberships
-        .where((m) => m.folderId == folderId)
+  String? execomRoleIn(int execomId) {
+    final membership = userExecomMemberships
+        .where((m) => m.execomId == execomId)
         .firstOrNull;
-    return membership?.folderRole;
+    return membership?.execomRole;
   }
 
   /// Check if a folder feature is allowed for this user
-  bool canDoInFolder(int folderId, String feature) {
+  bool canDoInExecom(int execomId, String feature) {
     // Effective Tier 1 can do everything in any folder
     if (isEffectivelyTier1) return true;
 
     // Check folder-specific permission toggle
-    final perms = folderPermissions[folderId] ?? [];
+    final perms = folderPermissions[execomId] ?? [];
     final perm = perms.where((p) => p.feature == feature).firstOrNull;
     
     // If not a member, they can only see if it's publicly allowed for their role
@@ -151,7 +151,7 @@ class PermissionEngine {
       return true; 
     }
 
-    if (!isMemberOfFolder(folderId)) return false;
+    if (!isMemberOfExecom(execomId)) return false;
 
     // Forum Execcom (Tier 3) default to true in their own folder if not explicitly restricted
     if (isAtLeastTier3) {
@@ -163,18 +163,18 @@ class PermissionEngine {
   }
 
   /// Can create events in a specific folder
-  bool canCreateEventInFolder(int folderId) =>
-      canCreateEvents && canDoInFolder(folderId, FolderFeature.createEvents);
+  bool canCreateEventInExecom(int execomId) =>
+      canCreateEvents && canDoInExecom(execomId, ExecomFeature.createEvents);
 
   /// Can upload reports in a specific folder
-  bool canUploadReportInFolder(int folderId) =>
-      canUploadReports && canDoInFolder(folderId, FolderFeature.uploadReports);
+  bool canUploadReportInExecom(int execomId) =>
+      canUploadReports && canDoInExecom(execomId, ExecomFeature.uploadReports);
 
   /// Can view budget in a specific folder
-  bool canViewBudgetInFolder(int folderId) =>
-      canAccessScopedBudget && canDoInFolder(folderId, FolderFeature.viewBudget);
+  bool canViewBudgetInExecom(int execomId) =>
+      canAccessScopedBudget && canDoInExecom(execomId, ExecomFeature.viewBudget);
 
   /// Get list of folder IDs this user belongs to
-  List<int> get userFolderIds =>
-      userFolderMemberships.map((m) => m.folderId).toList();
+  List<int> get userExecomIds =>
+      userExecomMemberships.map((m) => m.execomId).toList();
 }

@@ -44,7 +44,7 @@ enum AppRole {
 }
 
 /// Permission features that can be toggled per folder
-class FolderFeature {
+class ExecomFeature {
   static const String viewEvents = 'view_events';
   static const String createEvents = 'create_events';
   static const String uploadReports = 'upload_reports';

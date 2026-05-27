@@ -7,15 +7,15 @@ import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/custom_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 
-class AddFolderMemberScreen extends StatefulWidget {
-  final int folderId;
-  const AddFolderMemberScreen({super.key, required this.folderId});
+class AddExecomMemberScreen extends StatefulWidget {
+  final int execomId;
+  const AddExecomMemberScreen({super.key, required this.execomId});
 
   @override
-  State<AddFolderMemberScreen> createState() => _AddFolderMemberScreenState();
+  State<AddExecomMemberScreen> createState() => _AddExecomMemberScreenState();
 }
 
-class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
+class _AddExecomMemberScreenState extends State<AddExecomMemberScreen> {
   final _searchCtrl = TextEditingController();
   List<UserModel> _availableUsers = [];
   List<UserModel> _allGlobalUsers = [];
@@ -29,7 +29,7 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
   final _quickPhoneCtrl = TextEditingController();
   final _quickRollCtrl = TextEditingController();
   final _quickPostCtrl = TextEditingController();
-  String _quickRoleInFolder = 'member';
+  String _quickRoleInExecom = 'member';
 
   @override
   void initState() {
@@ -54,9 +54,9 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
       
       // 1. Get existing members to exclude them
       final existingData = await supabase
-          .from('folder_members')
+          .from('execom_members')
           .select('user_id')
-          .eq('folder_id', widget.folderId);
+          .eq('execom_id', widget.execomId);
       
       _existingUserIds = (existingData as List).map((e) => e['user_id'] as String).toSet();
 
@@ -106,10 +106,10 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
   Future<void> _addMember(UserModel user, String role) async {
     setState(() => _isLoading = true);
     try {
-      await Supabase.instance.client.from('folder_members').insert({
-        'folder_id': widget.folderId,
+      await Supabase.instance.client.from('execom_members').insert({
+        'execom_id': widget.execomId,
         'user_id': user.id,
-        'folder_role': role,
+        'execom_role': role,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -321,9 +321,9 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                _buildDropdownSmall('Role in Forum', _quickRoleInFolder, 
+                _buildDropdownSmall('Role in Forum', _quickRoleInExecom, 
                   ['chair', 'vice_chair', 'head', 'secretary', 'joint_secretary', 'member'], 
-                  (v) => setState(() => _quickRoleInFolder = v!)
+                  (v) => setState(() => _quickRoleInExecom = v!)
                 ),
                 const SizedBox(height: 24),
                 PrimaryButton(
@@ -387,10 +387,10 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
       final newUserId = res.data['user']['id'];
 
       // 2. Add to folder
-      await Supabase.instance.client.from('folder_members').insert({
-        'folder_id': widget.folderId,
+      await Supabase.instance.client.from('execom_members').insert({
+        'execom_id': widget.execomId,
         'user_id': newUserId,
-        'folder_role': _quickRoleInFolder,
+        'execom_role': _quickRoleInExecom,
       });
 
       if (mounted) {

@@ -33,9 +33,9 @@ class MoreScreen extends StatelessWidget {
           _buildMoreItem(
             context,
             icon: Icons.folder_open_outlined,
-            title: 'Forums',
+            title: 'Execom Teams',
             subtitle: 'Manage folder-based forums',
-            onTap: () => context.push('/folders'),
+            onTap: () => context.push('/execom'),
           ),
           _buildMoreItem(
             context,

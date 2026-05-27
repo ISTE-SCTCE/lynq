@@ -59,8 +59,8 @@ export const ChatListScreen: React.FC = () => {
         };
       });
 
-      // Keep only DMs (where folder_id is null)
-      const dms = allRecent.filter((c: any) => !c.folder_id && c.otherUserId);
+      // Keep only DMs (where execom_id is null)
+      const dms = allRecent.filter((c: any) => !c.execom_id && c.otherUserId);
       setChats(dms);
     } catch (e) {
       console.error('Error loading chat list:', e);

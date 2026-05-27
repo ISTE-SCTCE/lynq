@@ -12,15 +12,15 @@ import 'package:go_router/go_router.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? otherUserId;
-  final int? forumId;
+  final int? execomId;
   final String? forumName;
 
   const ChatScreen({
     super.key, 
     this.otherUserId,
-    this.forumId,
+    this.execomId,
     this.forumName,
-  }) : assert(otherUserId != null || forumId != null);
+  }) : assert(otherUserId != null || execomId != null);
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -113,11 +113,11 @@ class _ChatScreenState extends State<ChatScreen> {
       table: 'messages',
       filter: PostgresChangeFilter(
         type: PostgresChangeFilterType.eq,
-        column: widget.forumId != null ? 'folder_id' : 'conversation_id',
-        value: widget.forumId != null ? widget.forumId : _generateConvId(_myId!, widget.otherUserId!),
+        column: widget.execomId != null ? 'execom_id' : 'conversation_id',
+        value: widget.execomId != null ? widget.execomId : _generateConvId(_myId!, widget.otherUserId!),
       ),
       callback: (payload) {
-        if (widget.forumId == null) {
+        if (widget.execomId == null) {
           final newRecord = payload.newRecord;
           final sender = newRecord['sender_id'] as String?;
           final receiver = newRecord['receiver_id'] as String?;
@@ -158,9 +158,9 @@ class _ChatScreenState extends State<ChatScreen> {
       final eventsData = await supabase.from('events').select().order('date', ascending: true);
       _allEvents = (eventsData as List).map((e) => EventModel.fromJson(e)).toList();
 
-      if (widget.forumId != null) {
-        final folderData = await supabase.from('folders').select('name').eq('id', widget.forumId!).single();
-        final memberCountRes = await supabase.from('folder_members').select('id').eq('folder_id', widget.forumId!);
+      if (widget.execomId != null) {
+        final folderData = await supabase.from('execom').select('name').eq('id', widget.execomId!).single();
+        final memberCountRes = await supabase.from('execom_members').select('id').eq('execom_id', widget.execomId!);
         setState(() {
           _otherName = folderData['name'] as String? ?? 'Forum';
           _memberCount = (memberCountRes as List).length;
@@ -210,7 +210,7 @@ class _ChatScreenState extends State<ChatScreen> {
               content: 'Message unsent',
               timestamp: msg.timestamp,
               isDeleted: true,
-              folderId: msg.folderId,
+              execomId: msg.execomId,
               senderName: msg.senderName,
             );
           }
@@ -229,8 +229,8 @@ class _ChatScreenState extends State<ChatScreen> {
         .from('messages')
         .select();
     
-    if (widget.forumId != null) {
-      query = query.eq('folder_id', widget.forumId!);
+    if (widget.execomId != null) {
+      query = query.eq('execom_id', widget.execomId!);
     } else {
       query = query.or('and(sender_id.eq.$_myId,receiver_id.eq.${widget.otherUserId}),and(sender_id.eq.${widget.otherUserId},receiver_id.eq.$_myId)');
     }
@@ -298,8 +298,8 @@ class _ChatScreenState extends State<ChatScreen> {
         'timestamp': DateTime.now().toIso8601String(),
       };
 
-      if (widget.forumId != null) {
-        payload['folder_id'] = widget.forumId;
+      if (widget.execomId != null) {
+        payload['execom_id'] = widget.execomId;
       } else {
         payload['receiver_id'] = widget.otherUserId;
         payload['conversation_id'] = _generateConvId(_myId!, widget.otherUserId!);
@@ -422,18 +422,18 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(widget.forumId != null ? widget.forumName ?? "Forum" : _otherUser?.name ?? "Chat", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
-            if (widget.forumId == null)
+            Text(widget.execomId != null ? widget.forumName ?? "Forum" : _otherUser?.name ?? "Chat", style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 16)),
+            if (widget.execomId == null)
               Text(_isOtherUserOnline ? "online" : "offline", style: GoogleFonts.inter(fontSize: 11, color: _isOtherUserOnline ? const Color(0xFF00A884) : Colors.white70)),
-            if (widget.forumId != null)
+            if (widget.execomId != null)
               Text("$_memberCount members", style: GoogleFonts.inter(fontSize: 11, color: Colors.white70)),
           ],
         ),
         actions: [
-          if (widget.forumId != null)
+          if (widget.execomId != null)
             IconButton(
               icon: const Icon(Icons.people_outline, color: Colors.white),
-              onPressed: () => context.push('/folders/${widget.forumId}/members', extra: {'forum_name': widget.forumName}),
+              onPressed: () => context.push('/execom/${widget.execomId}/members', extra: {'forum_name': widget.forumName}),
             ),
         ],
       ),

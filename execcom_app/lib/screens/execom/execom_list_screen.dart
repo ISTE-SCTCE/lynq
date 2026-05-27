@@ -5,40 +5,40 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/auth_provider.dart';
 import '../../core/theme.dart';
-import '../../models/folder_model.dart';
+import '../../models/execom_model.dart';
 import '../../shared/widgets/glass_card.dart';
 
-class FolderListScreen extends StatefulWidget {
-  const FolderListScreen({super.key});
+class ExecomListScreen extends StatefulWidget {
+  const ExecomListScreen({super.key});
 
   @override
-  State<FolderListScreen> createState() => _FolderListScreenState();
+  State<ExecomListScreen> createState() => _ExecomListScreenState();
 }
 
-class _FolderListScreenState extends State<FolderListScreen> {
-  List<FolderModel> _folders = [];
+class _ExecomListScreenState extends State<ExecomListScreen> {
+  List<ExecomModel> _execom = [];
   Map<int, int> _memberCounts = {};
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadFolders();
+    _loadExecoms();
   }
 
-  Future<void> _loadFolders() async {
+  Future<void> _loadExecoms() async {
     final supabase = Supabase.instance.client;
     try {
-      final data = await supabase.from('folders').select().eq('is_forum', true).order('sort_order');
-      _folders = (data as List).map((e) => FolderModel.fromJson(e)).toList();
+      final data = await supabase.from('execom').select().eq('is_forum', true).order('sort_order');
+      _execom = (data as List).map((e) => ExecomModel.fromJson(e)).toList();
 
       // Count members per folder
-      for (final f in _folders) {
-        final count = await supabase.from('folder_members').select('id').eq('folder_id', f.id);
+      for (final f in _execom) {
+        final count = await supabase.from('execom_members').select('id').eq('execom_id', f.id);
         _memberCounts[f.id] = (count as List).length;
       }
     } catch (e) {
-      debugPrint('Error loading folders: $e');
+      debugPrint('Error loading execom: $e');
     }
     if (mounted) setState(() => _isLoading = false);
   }
@@ -48,24 +48,24 @@ class _FolderListScreenState extends State<FolderListScreen> {
     final perms = context.read<AuthProvider>().permissions;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Forums', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold))),
+      appBar: AppBar(title: Text('Execom Teams', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold))),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadFolders,
+              onRefresh: _loadExecoms,
               child: ListView.builder(
                 padding: const EdgeInsets.all(16),
-                itemCount: _folders.length,
+                itemCount: _execom.length,
                 itemBuilder: (context, i) {
-                  final folder = _folders[i];
+                  final folder = _execom[i];
                   final count = _memberCounts[folder.id] ?? 0;
-                  final userRole = perms?.folderRoleIn(folder.id);
+                  final userRole = perms?.execomRoleIn(folder.id);
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => context.push('/folders/${folder.id}'),
+                      onTap: () => context.push('/execom/${folder.id}'),
                       child: GlassCard(
                         padding: const EdgeInsets.all(16),
                         child: Row(

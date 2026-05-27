@@ -16,13 +16,13 @@ export const TaskCreateScreen: React.FC = () => {
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium');
   const [deadline, setDeadline] = useState('');
-  const [selectedForumId, setSelectedForumId] = useState<number | ''>('');
+  const [selectedExecomId, setSelectedExecomId] = useState<number | ''>('');
   const [proofRequired, setProofRequired] = useState(true);
   
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [folders, setFolders] = useState<any[]>([]);
+  const [execoms, setExecoms] = useState<any[]>([]);
   
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -39,15 +39,15 @@ export const TaskCreateScreen: React.FC = () => {
         if (userError) throw userError;
         setAllUsers(userData || []);
 
-        // Fetch folders if not a subtask
+        // Fetch execom if not a subtask
         if (!isSubtask) {
-          const { data: folderData, error: folderError } = await supabase
-            .from('folders')
+          const { data: execomData, error: execomError } = await supabase
+            .from('execom')
             .select('id, name')
             .order('name');
           
-          if (folderError) throw folderError;
-          setFolders(folderData || []);
+          if (execomError) throw execomError;
+          setExecoms(execomData || []);
         }
       } catch (e: any) {
         console.error('Error loading task configurations:', e);
@@ -91,7 +91,7 @@ export const TaskCreateScreen: React.FC = () => {
           description: description.trim() || null,
           created_by: currentUser.id,
           assigned_to: selectedUsers,
-          forum_id: selectedForumId || null,
+          execom_id: selectedExecomId || null,
           deadline: deadline || null,
           priority,
           status: 'pending',
@@ -217,11 +217,11 @@ export const TaskCreateScreen: React.FC = () => {
                 <Layers size={18} className="meta-icon" />
                 <select
                   className="form-select"
-                  value={selectedForumId}
-                  onChange={e => setSelectedForumId(e.target.value ? parseInt(e.target.value) : '')}
+                  value={selectedExecomId}
+                  onChange={e => setSelectedExecomId(e.target.value ? parseInt(e.target.value) : '')}
                 >
                   <option value="">General (No Forum)</option>
-                  {folders.map(f => (
+                  {execoms.map(f => (
                     <option key={f.id} value={f.id}>{f.name}</option>
                   ))}
                 </select>

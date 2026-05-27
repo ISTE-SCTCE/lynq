@@ -8,7 +8,7 @@ import {
   Users, 
   Wallet, 
   MessageSquare, 
-  FolderOpen, 
+  Shield, 
   ShieldAlert, 
   CheckSquare, 
   QrCode, 
@@ -27,7 +27,7 @@ export const HomeScreen: React.FC = () => {
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [isUpcomingLoading, setIsUpcomingLoading] = useState(true);
-  const [stats, setStats] = useState({ members: 73, events: 1, forums: 5 });
+  const [stats, setStats] = useState({ members: 73, events: 1, execoms: 12 });
 
   useEffect(() => {
     if (!currentUser) return;
@@ -57,17 +57,17 @@ export const HomeScreen: React.FC = () => {
 
         setPendingTasks(tasks || []);
 
-        // 3. Fetch exact counts from database dynamically to align with mobile app & backend
+        // 3. Fetch exact counts from database dynamically
         try {
-          const [usersRes, eventsRes, foldersRes] = await Promise.all([
+          const [usersRes, eventsRes, execomRes] = await Promise.all([
             supabase.from('users').select('id', { count: 'exact', head: true }),
             supabase.from('events').select('id', { count: 'exact', head: true }),
-            supabase.from('folders').select('id', { count: 'exact', head: true })
+            supabase.from('execom').select('id', { count: 'exact', head: true })
           ]);
           setStats({
             members: usersRes.count ?? 73,
             events: eventsRes.count ?? 1,
-            forums: foldersRes.count ?? 5
+            execoms: execomRes.count ?? 12
           });
         } catch (err) {
           console.error('Error loading dynamic dashboard stats:', err);
@@ -111,7 +111,7 @@ export const HomeScreen: React.FC = () => {
     quickActions.push({ icon: MessageSquare, label: 'Chat', route: '/chat', color: '#2e8a77' });
   }
 
-  quickActions.push({ icon: FolderOpen, label: 'Forums', route: '/folders', color: '#e4a252' });
+  quickActions.push({ icon: Shield, label: 'Execom Teams', route: '/execom', color: '#e4a252' });
 
   if (permissions.canManagePermissions) {
     quickActions.push({ icon: ShieldAlert, label: 'Permissions', route: '/settings/permissions', color: '#8b546a' });
@@ -168,15 +168,15 @@ export const HomeScreen: React.FC = () => {
                   <Calendar size={18} />
                 </div>
                 <div className="stat-value">{stats.events}</div>
-                <div className="stat-label">EVENT</div>
+                <div className="stat-label">EVENTS</div>
               </GlassCard>
 
               <GlassCard className="stat-card" padding="16px">
                 <div className="stat-icon-wrapper">
-                  <FolderOpen size={18} />
+                  <Shield size={18} />
                 </div>
-                <div className="stat-value">{stats.forums}</div>
-                <div className="stat-label">FORUMS</div>
+                <div className="stat-value">{stats.execoms}</div>
+                <div className="stat-label">EXECOM TEAMS</div>
               </GlassCard>
             </div>
           </section>
@@ -247,17 +247,17 @@ export const HomeScreen: React.FC = () => {
             )}
           </section>
 
-          {/* Active Forums Cards */}
+          {/* Active Execom Cards */}
           <section className="section-block" style={{ marginBottom: '40px' }}>
             <div className="section-title-row">
-              <h3 className="section-title">ACTIVE FORUMS</h3>
-              <button onClick={() => navigate('/folders')} className="see-all-button">
+              <h3 className="section-title">ACTIVE EXECOM TEAMS</h3>
+              <button onClick={() => navigate('/execom')} className="see-all-button" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
                 See All
               </button>
             </div>
             <div className="forums-row-scroll">
               {['ISTE'].map((forum, idx) => (
-                <GlassCard key={idx} className="forum-item-card" padding="14px" onClick={() => navigate('/folders')}>
+                <GlassCard key={idx} className="execom-item-card" padding="14px" onClick={() => navigate('/execom')} style={{ cursor: 'pointer' }}>
                   <div className="forum-card-content">
                     <BookOpen size={24} style={{ color: 'rgb(22, 192, 122)', marginBottom: '8px' }} />
                     <span className="forum-card-name">{forum}</span>
@@ -329,6 +329,9 @@ export const HomeScreen: React.FC = () => {
           display: flex;
           align-items: center;
           justify-content: center;
+          background: none;
+          border: none;
+          cursor: pointer;
         }
 
         .user-avatar {
@@ -594,13 +597,13 @@ export const HomeScreen: React.FC = () => {
           scroll-snap-type: x mandatory;
         }
 
-        .forum-item-card {
+        .execom-item-card {
           flex: 1 0 110px;
           scroll-snap-align: start;
           transition: all 0.2s ease;
         }
 
-        .forum-item-card:hover {
+        .execom-item-card:hover {
           transform: translateY(-2px);
         }
 

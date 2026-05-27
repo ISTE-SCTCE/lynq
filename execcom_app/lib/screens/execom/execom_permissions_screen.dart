@@ -3,18 +3,18 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
-import '../../models/folder_model.dart';
+import '../../models/execom_model.dart';
 import '../../shared/widgets/glass_card.dart';
 
-class FolderPermissionsScreen extends StatefulWidget {
-  final int folderId;
-  const FolderPermissionsScreen({super.key, required this.folderId});
+class ExecomPermissionsScreen extends StatefulWidget {
+  final int execomId;
+  const ExecomPermissionsScreen({super.key, required this.execomId});
 
   @override
-  State<FolderPermissionsScreen> createState() => _FolderPermissionsScreenState();
+  State<ExecomPermissionsScreen> createState() => _ExecomPermissionsScreenState();
 }
 
-class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
+class _ExecomPermissionsScreenState extends State<ExecomPermissionsScreen> {
   Map<String, bool> _permissions = {};
   bool _isLoading = true;
   bool _isSaving = false;
@@ -28,10 +28,10 @@ class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
   Future<void> _loadPermissions() async {
     try {
       final data = await Supabase.instance.client
-          .from('folder_permissions')
+          .from('execom_permissions')
           .select()
-          .eq('folder_id', widget.folderId);
-      final perms = (data as List).map((e) => FolderPermissionModel.fromJson(e)).toList();
+          .eq('execom_id', widget.execomId);
+      final perms = (data as List).map((e) => ExecomPermissionModel.fromJson(e)).toList();
       _permissions = {for (final p in perms) p.feature: p.allowed};
     } catch (e) {
       debugPrint('Error: $e');
@@ -44,9 +44,9 @@ class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
     try {
       for (final entry in _permissions.entries) {
         await Supabase.instance.client
-            .from('folder_permissions')
+            .from('execom_permissions')
             .update({'allowed': entry.value})
-            .eq('folder_id', widget.folderId)
+            .eq('execom_id', widget.execomId)
             .eq('feature', entry.key);
       }
       if (mounted) {
@@ -68,7 +68,7 @@ class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Folder Permissions', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+        title: Text('Execom Permissions', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: _isSaving ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save),
@@ -84,10 +84,10 @@ class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
                 Text('Toggle which features are enabled for execcom-level members in this folder.',
                     style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
                 const SizedBox(height: 16),
-                ...FolderFeature.all.map((feature) => GlassCard(
+                ...ExecomFeature.all.map((feature) => GlassCard(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: SwitchListTile(
-                    title: Text(FolderFeature.label(feature), style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                    title: Text(ExecomFeature.label(feature), style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
                     value: _permissions[feature] ?? false,
                     activeColor: AppTheme.secondary,
                     onChanged: (v) => setState(() => _permissions[feature] = v),

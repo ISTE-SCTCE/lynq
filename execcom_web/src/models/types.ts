@@ -17,19 +17,20 @@ export interface UserModel {
   permissions: Record<string, any>;
   last_seen?: string;
   created_at?: string;
+  execom_tag?: string;
 }
 
-export interface FolderModel {
+export interface ExecomModel {
   id: number;
   name: string;
   created_at?: string;
 }
 
-export interface FolderMemberModel {
+export interface ExecomMemberModel {
   id: number;
-  folder_id: number;
+  execom_id: number;
   user_id: string;
-  folder_role: string;
+  execom_role: string;
   created_at?: string;
   // Included from join
   users?: {
@@ -41,9 +42,9 @@ export interface FolderMemberModel {
   };
 }
 
-export interface FolderPermissionModel {
+export interface ExecomPermissionModel {
   id: number;
-  folder_id: number;
+  execom_id: number;
   feature: string;
   allowed: boolean;
   created_at?: string;
@@ -55,7 +56,7 @@ export interface EventModel {
   date?: string;
   description?: string;
   type?: string;
-  folder_id?: number;
+  execom_id?: number;
   created_by?: string;
   created_at?: string;
   member_price: number;
@@ -77,7 +78,7 @@ export interface AnnouncementModel {
 
 export interface BudgetRequestModel {
   id: number;
-  folder_id: number;
+  execom_id: number;
   requested_by: string;
   amount: number;
   reason?: string;
@@ -104,7 +105,7 @@ export interface MessageModel {
   conversation_id?: string;
   read_at?: string;
   timestamp?: string;
-  folder_id?: number;
+  execom_id?: number;
   sender?: string; // senderName in flutter JSON mapper
   is_deleted: boolean;
 }
@@ -112,8 +113,8 @@ export interface MessageModel {
 export interface ConversationModel {
   conversation_id: string;
   other_user_id?: string;
-  folder_id?: number;
-  folder_name?: string;
+  execom_id?: number;
+  execom_name?: string;
   last_message: string;
   last_message_time: string;
   unread_count: number;
@@ -126,7 +127,7 @@ export interface ReportModel {
   id: number;
   event_id?: number;
   uploaded_by?: string;
-  folder_id?: number;
+  execom_id?: number;
   title: string;
   content: string;
   file_url?: string;
@@ -143,7 +144,7 @@ export interface TaskModel {
   assigned_to: string[]; // User IDs
   deadline?: string;
   created_by?: string;
-  folder_id?: number;
+  execom_id?: number;
   created_at?: string;
   parent_task_id?: number;
 }
@@ -154,7 +155,7 @@ export interface FinancialIncomeModel {
   transaction_date?: string;
   created_by?: string;
   event_id?: number;
-  folder_id?: number;
+  execom_id?: number;
   category: string;
   source?: string;
   description?: string;
@@ -169,7 +170,7 @@ export interface FinancialLedgerModel {
   created_by?: string;
   event_id?: number;
   category_id?: number;
-  folder_id?: number;
+  execom_id?: number;
   type: string;
   source?: string;
   category: string;
