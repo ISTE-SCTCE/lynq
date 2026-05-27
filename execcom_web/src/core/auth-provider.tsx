@@ -82,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isShowingSplash, setIsShowingSplash] = useState(true);
   const loadingUserIdRef = React.useRef<string | null>(null);
   const currentUserIdRef = React.useRef<string | null>(null);
+  const isSigningInRef = React.useRef(false);
 
   const hideSplash = useCallback(() => setIsShowingSplash(false), []);
 
@@ -194,6 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (isSigningInRef.current) return;
       const newUser = session?.user ?? null;
       if (newUser) {
         if (currentUserIdRef.current === newUser.id || loadingUserIdRef.current === newUser.id) {
@@ -216,10 +218,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     setIsLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { setIsLoading(false); throw error; }
-    setAuthUser(data.user);
-    await loadUserData(data.user, true); // fresh load on sign-in — no stale cache
+    isSigningInRef.current = true;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      setAuthUser(data.user);
+      await loadUserData(data.user, true); // fresh load on sign-in — no stale cache
+    } catch (error) {
+      setIsLoading(false);
+      throw error;
+    } finally {
+      isSigningInRef.current = false;
+    }
   };
 
   const signOut = async () => {
