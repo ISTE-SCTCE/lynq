@@ -6,15 +6,15 @@ import 'dart:io' as io;
 import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../models/app_models.dart';
-import '../../models/execom_model.dart';
+import '../../models/folder_model.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/custom_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 
 class BudgetRequestScreen extends StatefulWidget {
-  final int? execomId;
+  final int? folderId;
   final String? mode; // 'request' or 'allocate'
-  const BudgetRequestScreen({super.key, this.execomId, this.mode});
+  const BudgetRequestScreen({super.key, this.folderId, this.mode});
 
   @override
   State<BudgetRequestScreen> createState() => _BudgetRequestScreenState();
@@ -23,8 +23,8 @@ class BudgetRequestScreen extends StatefulWidget {
 class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
   final _amountCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
-  int? _selectedExecomId;
-  List<ExecomModel> _execom = [];
+  int? _selectedFolderId;
+  List<FolderModel> _folders = [];
   PlatformFile? _pickedFile;
   bool _isLoading = false;
   bool _isInit = true;
@@ -32,11 +32,11 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedExecomId = widget.execomId;
-    _loadExecoms();
+    _selectedFolderId = widget.folderId;
+    _loadFolders();
   }
 
-  Future<void> _loadExecoms() async {
+  Future<void> _loadFolders() async {
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
@@ -45,26 +45,26 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
       final userRes = await client.from('users').select('role').eq('id', userId ?? '').single();
       final role = AppRole.fromString(userRes['role']);
 
-      var query = client.from('execom').select();
+      var query = client.from('folders').select();
       
       if (role >= AppRole.coreExeccom) {
         // No extra filters for core
       } else {
-        final folderMembership = client.from('execom_members').select('execom_id').eq('user_id', userId ?? '').then((res) => (res as List).map((m) => m['execom_id']).toList());
-        final execomIds = await folderMembership;
-        if (execomIds.isEmpty) {
+        final folderMembership = client.from('folder_members').select('folder_id').eq('user_id', userId ?? '').then((res) => (res as List).map((m) => m['folder_id']).toList());
+        final folderIds = await folderMembership;
+        if (folderIds.isEmpty) {
           if (mounted) setState(() => _isLoading = false);
           return;
         }
-        query = query.inFilter('id', execomIds);
+        query = query.inFilter('id', folderIds);
       }
 
       final data = await query.order('name');
       if (mounted) {
         setState(() {
-          _execom = (data as List).map((e) => ExecomModel.fromJson(e)).toList();
-          if (_selectedExecomId == null && _execom.isNotEmpty) {
-            _selectedExecomId = _execom.first.id;
+          _folders = (data as List).map((e) => FolderModel.fromJson(e)).toList();
+          if (_selectedFolderId == null && _folders.isNotEmpty) {
+            _selectedFolderId = _folders.first.id;
           }
           _isInit = false;
         });
@@ -88,7 +88,7 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
 
 
   Future<void> _submit() async {
-    if (_amountCtrl.text.isEmpty || _selectedExecomId == null) return;
+    if (_amountCtrl.text.isEmpty || _selectedFolderId == null) return;
     setState(() => _isLoading = true);
     
     final isAllocation = widget.mode == 'allocate';
@@ -120,7 +120,7 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
       }
 
       await Supabase.instance.client.from('budget_requests').insert({
-        'execom_id': _selectedExecomId,
+        'folder_id': _selectedFolderId,
         'requested_by': currentUserId,
         'amount': double.parse(_amountCtrl.text.trim()),
         'reason': _reasonCtrl.text.trim(),
@@ -159,8 +159,8 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_execom.isNotEmpty) ...[
-                    Text('Target Execom', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+                  if (_folders.isNotEmpty) ...[
+                    Text('Target Folder', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
                     const SizedBox(height: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -171,12 +171,12 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<int?>(
-                          value: _selectedExecomId,
+                          value: _selectedFolderId,
                           isExpanded: true,
                           dropdownColor: AppTheme.darkGreen,
                           style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
-                          items: _execom.map((f) => DropdownMenuItem<int?>(value: f.id, child: Text(f.name))).toList(),
-                          onChanged: (val) => setState(() => _selectedExecomId = val),
+                          items: _folders.map((f) => DropdownMenuItem<int?>(value: f.id, child: Text(f.name))).toList(),
+                          onChanged: (val) => setState(() => _selectedFolderId = val),
                         ),
                       ),
                     ),

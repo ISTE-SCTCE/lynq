@@ -6,7 +6,7 @@ import '../../core/auth_provider.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
 import '../../models/user_model.dart';
-import '../../models/execom_model.dart';
+import '../../models/folder_model.dart';
 import '../../shared/widgets/glass_card.dart';
 
 class MemberDetailScreen extends StatefulWidget {
@@ -19,7 +19,7 @@ class MemberDetailScreen extends StatefulWidget {
 
 class _MemberDetailScreenState extends State<MemberDetailScreen> {
   UserModel? _user;
-  List<ExecomMemberModel> _memberships = [];
+  List<FolderMemberModel> _memberships = [];
   bool _isLoading = true;
 
   @override
@@ -35,10 +35,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       _user = UserModel.fromJson(data);
 
       final mData = await supabase
-          .from('execom_members')
-          .select('*, execom!folder_members_execom_id_fkey(id, name)')
+          .from('folder_members')
+          .select('*, folders!folder_members_folder_id_fkey(id, name)')
           .eq('user_id', widget.userId);
-      _memberships = (mData as List).map((e) => ExecomMemberModel.fromJson(e)).toList();
+      _memberships = (mData as List).map((e) => FolderMemberModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('Error: $e');
     }
@@ -120,19 +120,19 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     if (_user == null) return;
     
     setState(() => _isLoading = true);
-    List<ExecomModel> availableForums = [];
+    List<FolderModel> availableForums = [];
     try {
       // 1. Get all forums
-      final execomRes = await Supabase.instance.client
-          .from('execom')
+      final foldersRes = await Supabase.instance.client
+          .from('folders')
           .select()
           .eq('is_forum', true)
           .order('name');
       
-      final allForums = (execomRes as List).map((e) => ExecomModel.fromJson(e)).toList();
+      final allForums = (foldersRes as List).map((e) => FolderModel.fromJson(e)).toList();
       
       // 2. Filter out already joined
-      final joinedIds = _memberships.map((m) => m.execomId).toSet();
+      final joinedIds = _memberships.map((m) => m.folderId).toSet();
       availableForums = allForums.where((f) => !joinedIds.contains(f.id)).toList();
       
     } catch (e) {
@@ -146,7 +146,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       return;
     }
 
-    ExecomModel? selectedForum = availableForums[0];
+    FolderModel? selectedForum = availableForums[0];
     String selectedRole = 'member';
     bool isSaving = false;
 
@@ -162,7 +162,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<ExecomModel>(
+              DropdownButtonFormField<FolderModel>(
                 value: selectedForum,
                 dropdownColor: Colors.grey[900],
                 style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
@@ -204,10 +204,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
               onPressed: isSaving ? null : () async {
                 setState(() => isSaving = true);
                 try {
-                  await Supabase.instance.client.from('execom_members').insert({
-                    'execom_id': selectedForum!.id,
+                  await Supabase.instance.client.from('folder_members').insert({
+                    'folder_id': selectedForum!.id,
                     'user_id': _user!.id,
-                    'execom_role': selectedRole,
+                    'folder_role': selectedRole,
                   });
                   Navigator.pop(context);
                   _loadUser();
@@ -409,14 +409,14 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                             children: [
                               const Icon(Icons.folder_outlined, size: 20),
                               const SizedBox(width: 12),
-                              Expanded(child: Text(m.execomName ?? 'Execom #${m.execomId}', style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
+                              Expanded(child: Text(m.folderName ?? 'Folder #${m.folderId}', style: GoogleFonts.inter(fontWeight: FontWeight.w600))),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: AppTheme.secondary.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: Text(m.execomRole, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
+                                child: Text(m.folderRole, style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600)),
                               ),
                             ],
                           ),

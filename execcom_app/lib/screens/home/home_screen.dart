@@ -31,7 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   int _membersCount = 73;
   int _eventsCount = 1;
-  int _execomCount = 5;
+  int _foldersCount = 5;
 
   // Real-time update/red badge flags
   bool _hasNewRegistrations = false;
@@ -196,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final newRecord = payload.newRecord;
         NotificationService().showNotification(
           title: 'New Report Uploaded',
-          body: 'A new file "${newRecord['name']}" has been uploaded to execom.',
+          body: 'A new file "${newRecord['name']}" has been uploaded to folders.',
         );
       },
     );
@@ -240,7 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final futureMembers = Supabase.instance.client.from('users').select('id');
       final futureEventsCount = Supabase.instance.client.from('events').select('id');
-      final futureExecoms = Supabase.instance.client.from('execom').select('id');
+      final futureFolders = Supabase.instance.client.from('folders').select('id');
 
       final results = await Future.wait([
         futureLedger,
@@ -248,14 +248,14 @@ class _HomeScreenState extends State<HomeScreen> {
         futureTasks,
         futureMembers,
         futureEventsCount,
-        futureExecoms,
+        futureFolders,
       ]);
       final ledgerData = results[0];
       final eventsData = results[1];
       final tasksData = results[2];
       final membersData = results[3];
       final allEventsData = results[4];
-      final execomData = results[5];
+      final foldersData = results[5];
 
       final ledgerEntries = (ledgerData as List)
           .map((entry) => Map<String, dynamic>.from(entry as Map))
@@ -297,7 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _totalSpent = spent;
         _membersCount = (membersData as List).length;
         _eventsCount = (allEventsData as List).length;
-        _execomCount = (execomData as List).length;
+        _foldersCount = (foldersData as List).length;
         _isFinancialLoading = false;
       });
     } catch (e) {
@@ -395,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 40),
                         _buildSectionHeader(
                           'Active Forums',
-                          () => context.push('/execom'),
+                          () => context.push('/folders'),
                         ),
                         const SizedBox(height: 16),
                         _buildForumCards(context, perms),
@@ -694,8 +694,8 @@ class _HomeScreenState extends State<HomeScreen> {
     actions.add(
       _ActionItem(
         Icons.folder_open_rounded,
-        'Execom Teams',
-        () => context.push('/execom'),
+        'Forums',
+        () => context.push('/folders'),
         const Color(0xFFE4A252),
       ),
     );
@@ -837,7 +837,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _statCard(context, 'Execom Teams', '$_execomCount', Icons.group_work_outlined),
+          child: _statCard(context, 'Forums', '$_foldersCount', Icons.group_work_outlined),
         ),
       ],
     );
@@ -1123,7 +1123,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildForumCards(BuildContext context, PermissionEngine perms) {
     return InkWell(
-      onTap: () => context.push('/execom'),
+      onTap: () => context.push('/folders'),
       borderRadius: BorderRadius.circular(20),
       child: GlassCard(
         padding: const EdgeInsets.all(16),

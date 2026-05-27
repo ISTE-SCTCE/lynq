@@ -6,10 +6,10 @@ import 'constants.dart';
 import '../screens/splash_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/home/home_screen.dart';
-import '../screens/execom/execom_list_screen.dart';
-import '../screens/execom/execom_detail_screen.dart';
-import '../screens/execom/execom_permissions_screen.dart';
-import '../screens/execom/add_execom_member_screen.dart';
+import '../screens/folders/folder_list_screen.dart';
+import '../screens/folders/folder_detail_screen.dart';
+import '../screens/folders/folder_permissions_screen.dart';
+import '../screens/folders/add_folder_member_screen.dart';
 import '../screens/members/member_list_screen.dart';
 import '../screens/members/member_detail_screen.dart';
 import '../screens/members/add_member_screen.dart';
@@ -61,8 +61,8 @@ class AppRouter {
       if (loc.startsWith('/members-enroll') && !(perms?.canAddMembers ?? false)) return '/home';
       if (loc == '/members' && role < AppRole.forumExeccom) return '/home';
 
-      // Execom permissions management
-      if (loc.contains('/execom/') && loc.contains('/permissions') && !(perms?.canManageExecomPermissions ?? false)) return '/home';
+      // Folder permissions management
+      if (loc.contains('/folders/') && loc.contains('/permissions') && !(perms?.canManageFolderPermissions ?? false)) return '/home';
 
       // Global Permission Manager management
       if (loc == '/settings/permissions' && !(perms?.canManageGlobalPermissions ?? false)) return '/home';
@@ -74,18 +74,18 @@ class AppRouter {
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
 
-      // Execoms
-      GoRoute(path: '/execom', builder: (_, __) => const ExecomListScreen()),
+      // Folders
+      GoRoute(path: '/folders', builder: (_, __) => const FolderListScreen()),
       GoRoute(
-        path: '/execom/:id',
-        builder: (_, state) => ExecomDetailScreen(
-          execomId: int.parse(state.pathParameters['id']!),
+        path: '/folders/:id',
+        builder: (_, state) => FolderDetailScreen(
+          folderId: int.parse(state.pathParameters['id']!),
         ),
       ),
       GoRoute(
-        path: '/execom/:id/permissions',
-        builder: (_, state) => ExecomPermissionsScreen(
-          execomId: int.parse(state.pathParameters['id']!),
+        path: '/folders/:id/permissions',
+        builder: (_, state) => FolderPermissionsScreen(
+          folderId: int.parse(state.pathParameters['id']!),
         ),
       ),
 
@@ -109,13 +109,13 @@ class AppRouter {
       GoRoute(
         path: '/events', 
         builder: (_, state) => EventListScreen(
-          execomId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
+          folderId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
         ),
       ),
       GoRoute(
         path: '/events/create',
         builder: (_, state) => EventFormScreen(
-          execomId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
+          folderId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
         ),
       ),
 
@@ -148,7 +148,7 @@ class AppRouter {
       GoRoute(
         path: '/budget/request',
         builder: (_, state) => BudgetRequestScreen(
-          execomId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
+          folderId: int.tryParse(state.uri.queryParameters['folder'] ?? ''),
           mode: state.uri.queryParameters['mode'],
         ),
       ),
@@ -164,10 +164,10 @@ class AppRouter {
       GoRoute(
         path: '/chat', 
         builder: (_, state) {
-          final execomId = int.tryParse(state.uri.queryParameters['execomId'] ?? '');
+          final forumId = int.tryParse(state.uri.queryParameters['forumId'] ?? '');
           final userId = state.uri.queryParameters['userId'];
           
-          if (execomId != null) return ChatScreen(execomId: execomId);
+          if (forumId != null) return ChatScreen(forumId: forumId);
           if (userId != null) return ChatScreen(otherUserId: userId);
           return const ChatListScreen();
         }

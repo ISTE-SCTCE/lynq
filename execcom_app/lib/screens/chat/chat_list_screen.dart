@@ -71,7 +71,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
           .map((e) => ConversationModel.fromJson(e, myId))
           .toList();
 
-      _directChats = allRecent.where((c) => c.execomId == null && (c.otherUserId != null)).toList();
+      _directChats = allRecent.where((c) => c.folderId == null && (c.otherUserId != null)).toList();
 
       // 2. Load Contacts/Users
       final usersData = await supabase

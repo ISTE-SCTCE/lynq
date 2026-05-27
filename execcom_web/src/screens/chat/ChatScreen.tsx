@@ -73,7 +73,7 @@ export const ChatScreen: React.FC = () => {
         };
       });
 
-      const dms = allRecent.filter((c: any) => !c.execom_id && c.otherUserId);
+      const dms = allRecent.filter((c: any) => !c.folder_id && c.otherUserId);
       setChats(dms);
     } catch (e) {
       console.error('Error loading left pane data:', e);

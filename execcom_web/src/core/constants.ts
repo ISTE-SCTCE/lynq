@@ -4,9 +4,8 @@ export enum AppRole {
   panel = 2,
   forumExeccom = 3,
   coreExeccom = 4,
-  facultyAdvisor = 5,
-  viceChairman = 6,
-  chairman = 7,
+  viceChairman = 5,
+  chairman = 6,
 }
 
 export const AppRoleLabels: Record<AppRole, string> = {
@@ -15,7 +14,6 @@ export const AppRoleLabels: Record<AppRole, string> = {
   [AppRole.panel]: 'Panel',
   [AppRole.forumExeccom]: 'Forum-Execom',
   [AppRole.coreExeccom]: 'Core Execom',
-  [AppRole.facultyAdvisor]: 'Faculty Advisor',
   [AppRole.viceChairman]: 'Vice Chairman',
   [AppRole.chairman]: 'Chairman',
 };
@@ -28,8 +26,6 @@ export function appRoleFromString(s?: string): AppRole {
       return AppRole.chairman;
     case 'vice_chairman':
       return AppRole.viceChairman;
-    case 'faculty_advisor':
-      return AppRole.facultyAdvisor;
     case 'core_execcom':
     case 'core_execom':
       return AppRole.coreExeccom;
@@ -52,8 +48,6 @@ export function appRoleToDbString(role: AppRole): string {
       return 'chairman';
     case AppRole.viceChairman:
       return 'vice_chairman';
-    case AppRole.facultyAdvisor:
-      return 'faculty_advisor';
     case AppRole.coreExeccom:
       return 'core_execcom';
     case AppRole.forumExeccom:
@@ -67,7 +61,7 @@ export function appRoleToDbString(role: AppRole): string {
   }
 }
 
-export class ExecomFeature {
+export class FolderFeature {
   static viewEvents = 'view_events';
   static createEvents = 'create_events';
   static uploadReports = 'upload_reports';
@@ -80,39 +74,39 @@ export class ExecomFeature {
   static viewReports = 'view_reports';
 
   static all = [
-    ExecomFeature.viewEvents,
-    ExecomFeature.createEvents,
-    ExecomFeature.uploadReports,
-    ExecomFeature.viewMembers,
-    ExecomFeature.manageMembers,
-    ExecomFeature.viewBudget,
-    ExecomFeature.requestBudget,
-    ExecomFeature.viewTotalBudget,
-    ExecomFeature.viewReports,
-    ExecomFeature.manageAll,
+    FolderFeature.viewEvents,
+    FolderFeature.createEvents,
+    FolderFeature.uploadReports,
+    FolderFeature.viewMembers,
+    FolderFeature.manageMembers,
+    FolderFeature.viewBudget,
+    FolderFeature.requestBudget,
+    FolderFeature.viewTotalBudget,
+    FolderFeature.viewReports,
+    FolderFeature.manageAll,
   ];
 
   static label(feature: string): string {
     switch (feature) {
-      case ExecomFeature.viewEvents:
+      case FolderFeature.viewEvents:
         return 'View Events';
-      case ExecomFeature.createEvents:
+      case FolderFeature.createEvents:
         return 'Create/Edit Events';
-      case ExecomFeature.uploadReports:
+      case FolderFeature.uploadReports:
         return 'Upload Reports';
-      case ExecomFeature.viewMembers:
+      case FolderFeature.viewMembers:
         return 'View Members';
-      case ExecomFeature.manageMembers:
+      case FolderFeature.manageMembers:
         return 'Manage Members';
-      case ExecomFeature.viewBudget:
-        return 'View Execom Budget';
-      case ExecomFeature.requestBudget:
+      case FolderFeature.viewBudget:
+        return 'View Forum Budget';
+      case FolderFeature.requestBudget:
         return 'Request Budget';
-      case ExecomFeature.viewTotalBudget:
+      case FolderFeature.viewTotalBudget:
         return 'View Total ISTE Budget';
-      case ExecomFeature.viewReports:
+      case FolderFeature.viewReports:
         return 'View All Reports';
-      case ExecomFeature.manageAll:
+      case FolderFeature.manageAll:
         return 'Full Management Access';
       default:
         return feature;

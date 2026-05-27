@@ -1,21 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Sparkles } from 'lucide-react';
+import { ArrowLeft, FileText, Sparkles, Loader, Link as LinkIcon } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { CustomTextField } from '../../shared/components/CustomTextField';
 import { PrimaryButton } from '../../shared/components/PrimaryButton';
 import { GlassCard } from '../../shared/components/GlassCard';
+
 import { NavBar } from '../../shared/components/NavBar';
-import { ExecomModel } from '../../models/types';
 
 export const BudgetRequestScreen: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, permissions } = useAuth();
   
-  const execomParam = searchParams.get('execom');
-  const execomId = execomParam ? parseInt(execomParam) : null;
+  const folderParam = searchParams.get('folder');
+  const folderId = folderParam ? parseInt(folderParam) : null;
 
   // Form States
   const [amount, setAmount] = useState('');
@@ -23,30 +23,30 @@ export const BudgetRequestScreen: React.FC = () => {
   const [proposalFile, setProposalFile] = useState<File | null>(null);
   const [proposalName, setProposalName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [execoms, setExecoms] = useState<ExecomModel[]>([]);
-  const [selectedExecom, setSelectedExecom] = useState<number | ''>(execomId || '');
+  const [folders, setFolders] = useState<any[]>([]);
+  const [selectedFolder, setSelectedFolder] = useState<number | ''>(folderId || '');
 
   useEffect(() => {
     if (!currentUser) return;
     
-    const fetchExecoms = async () => {
+    const fetchForums = async () => {
       try {
         const { data: memberData } = await supabase
-          .from('execom_members')
-          .select('execom_id, execom:execom(id, name)')
+          .from('folder_members')
+          .select('folder_id, folders:folders(id, name)')
           .eq('user_id', currentUser.id);
 
-        const loadedExecoms = (memberData || []).map((m: any) => m.execom).filter((f) => f) as ExecomModel[];
-        setExecoms(loadedExecoms);
-        if (loadedExecoms.length > 0 && selectedExecom === '') {
-          setSelectedExecom(loadedExecoms[0].id);
+        const loadedForums = (memberData || []).map((m: any) => m.folders).filter((f) => f);
+        setFolders(loadedForums);
+        if (loadedForums.length > 0 && selectedFolder === '') {
+          setSelectedFolder(loadedForums[0].id);
         }
       } catch (e) {
-        console.error('Error fetching execom teams for requests:', e);
+        console.error('Error fetching forums for requests:', e);
       }
     };
 
-    fetchExecoms();
+    fetchForums();
   }, [currentUser]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -64,7 +64,7 @@ export const BudgetRequestScreen: React.FC = () => {
       const fileName = `${crypto.randomUUID()}.${ext}`;
       const path = `proposals/${fileName}`;
 
-      const { error } = await supabase.storage
+      const { data, error } = await supabase.storage
         .from('proposals')
         .upload(path, proposalFile);
 
@@ -84,7 +84,7 @@ export const BudgetRequestScreen: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(amount);
-    if (isNaN(amt) || !selectedExecom || !currentUser) return;
+    if (isNaN(amt) || !selectedFolder || !currentUser) return;
 
     setIsLoading(true);
     try {
@@ -94,7 +94,7 @@ export const BudgetRequestScreen: React.FC = () => {
       }
 
       const { error } = await supabase.from('budget_requests').insert({
-        execom_id: selectedExecom,
+        folder_id: selectedFolder,
         requested_by: currentUser.id,
         amount: amt,
         reason: reason.trim(),
@@ -104,7 +104,7 @@ export const BudgetRequestScreen: React.FC = () => {
 
       if (error) throw error;
       alert('Budget request submitted successfully!');
-      navigate(execomId ? `/budget?execom=${execomId}` : '/budget');
+      navigate(folderId ? `/budget?folder=${folderId}` : '/budget');
     } catch (err) {
       console.error('Submit budget request error:', err);
       alert('Failed to submit budget request');
@@ -118,7 +118,7 @@ export const BudgetRequestScreen: React.FC = () => {
   return (
     <div className="budget-request-container">
       <header className="page-header">
-        <button onClick={() => navigate(execomId ? `/budget?execom=${execomId}` : '/budget')} className="back-button">
+        <button onClick={() => navigate(folderId ? `/budget?folder=${folderId}` : '/budget')} className="back-button">
           <ArrowLeft size={20} />
         </button>
         <h2 className="page-title">Request Budget</h2>
@@ -129,14 +129,14 @@ export const BudgetRequestScreen: React.FC = () => {
         <GlassCard className="form-fields-card" padding="24px">
           
           <div style={{ marginBottom: '16px' }}>
-            <label className="form-input-label">Execom Team Association</label>
+            <label className="form-input-label">Forum Scoped Association</label>
             <select
-              value={selectedExecom}
-              onChange={(e) => setSelectedExecom(parseInt(e.target.value))}
+              value={selectedFolder}
+              onChange={(e) => setSelectedFolder(parseInt(e.target.value))}
               className="form-select-field"
-              disabled={execoms.length === 0}
+              disabled={folders.length === 0}
             >
-              {execoms.map((f) => (
+              {folders.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
                 </option>
@@ -182,7 +182,7 @@ export const BudgetRequestScreen: React.FC = () => {
               text="Submit Request"
               type="submit"
               isLoading={isLoading}
-              disabled={!amount || !selectedExecom}
+              disabled={!amount || !selectedFolder}
               icon={Sparkles}
             />
           </div>
@@ -206,9 +206,6 @@ export const BudgetRequestScreen: React.FC = () => {
 
         .back-button {
           color: var(--text-primary);
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .page-title {
@@ -253,9 +250,6 @@ export const BudgetRequestScreen: React.FC = () => {
           padding: 18px 16px;
           cursor: pointer;
           transition: all 0.2s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
         }
 
         .document-uploader-block:hover {

@@ -50,7 +50,7 @@ class _TaskCreateScreenState extends State<TaskCreateScreen> {
     try {
       final [users, forums] = await Future.wait([
         _supabase.from('users').select('id, name, role').order('name'),
-        if (!_isSubtask) _supabase.from('execom').select('id, name').order('name'),
+        if (!_isSubtask) _supabase.from('folders').select('id, name').order('name'),
       ]);
       if (mounted) {
         setState(() {
@@ -84,7 +84,7 @@ class _TaskCreateScreenState extends State<TaskCreateScreen> {
           'description': _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
           'created_by': auth.authUser?.id,
           'assigned_to': _selectedUsers,
-          'execom_id': _selectedForumId,
+          'forum_id': _selectedForumId,
           'deadline': _deadline?.toIso8601String(),
           'priority': _priority.dbValue,
         });

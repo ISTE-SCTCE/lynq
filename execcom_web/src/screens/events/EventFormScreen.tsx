@@ -14,8 +14,8 @@ export const EventFormScreen: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { currentUser, permissions } = useAuth();
   
-  const execomParam = searchParams.get('execom');
-  const execomId = execomParam ? parseInt(execomParam) : null;
+  const folderParam = searchParams.get('folder');
+  const folderId = folderParam ? parseInt(folderParam) : null;
 
   // Form States
   const [title, setTitle] = useState('');
@@ -88,7 +88,7 @@ export const EventFormScreen: React.FC = () => {
         title: title.trim(),
         description: description.trim(),
         date,
-        execom_id: execomId,
+        folder_id: folderId,
         created_by: currentUser.id,
         member_price: parseInt(memberPrice) || 0,
         non_member_price: parseInt(nonMemberPrice) || 0,
@@ -100,7 +100,7 @@ export const EventFormScreen: React.FC = () => {
 
       if (error) throw error;
       alert('Event created successfully!');
-      navigate(execomId ? `/events?execom=${execomId}` : '/events');
+      navigate(folderId ? `/events?folder=${folderId}` : '/events');
     } catch (e) {
       console.error('Create event error:', e);
       alert('Failed to create event');
@@ -114,7 +114,7 @@ export const EventFormScreen: React.FC = () => {
   return (
     <div className="event-form-container">
       <header className="page-header">
-        <button onClick={() => navigate(execomId ? `/events?execom=${execomId}` : '/events')} className="back-button">
+        <button onClick={() => navigate(folderId ? `/events?folder=${folderId}` : '/events')} className="back-button">
           <ArrowLeft size={20} />
         </button>
         <h2 className="page-title">Create Event</h2>

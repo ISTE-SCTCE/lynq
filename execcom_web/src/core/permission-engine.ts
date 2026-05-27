@@ -1,19 +1,19 @@
-import { AppRole, appRoleFromString, ExecomFeature, BudgetAuthorityPosts } from './constants';
-import { UserModel, ExecomMemberModel, ExecomPermissionModel } from '../models/types';
+import { AppRole, appRoleFromString, FolderFeature, BudgetAuthorityPosts } from './constants';
+import { UserModel, FolderMemberModel, FolderPermissionModel } from '../models/types';
 
 export class PermissionEngine {
   readonly user: UserModel;
-  readonly userExecomMemberships: ExecomMemberModel[];
-  readonly execomPermissions: Record<number, ExecomPermissionModel[]>;
+  readonly userFolderMemberships: FolderMemberModel[];
+  readonly folderPermissions: Record<number, FolderPermissionModel[]>;
 
   constructor(
     user: UserModel,
-    userExecomMemberships: ExecomMemberModel[] = [],
-    execomPermissions: Record<number, ExecomPermissionModel[]> = {}
+    userFolderMemberships: FolderMemberModel[] = [],
+    folderPermissions: Record<number, FolderPermissionModel[]> = {}
   ) {
     this.user = user;
-    this.userExecomMemberships = userExecomMemberships;
-    this.execomPermissions = execomPermissions;
+    this.userFolderMemberships = userFolderMemberships;
+    this.folderPermissions = folderPermissions;
   }
 
   get role(): AppRole {
@@ -22,7 +22,7 @@ export class PermissionEngine {
 
   // Tier getters
   get isTier1(): boolean { return this.role === AppRole.chairman || this.role === AppRole.viceChairman; }
-  get isTier2(): boolean { return this.role === AppRole.coreExeccom || this.role === AppRole.facultyAdvisor; }
+  get isTier2(): boolean { return this.role === AppRole.coreExeccom; }
   get isTier3(): boolean { return this.role === AppRole.forumExeccom; }
   get isTier4(): boolean { return this.role === AppRole.panel; }
   get isTier5(): boolean { return this.role === AppRole.restricted; }
@@ -42,10 +42,10 @@ export class PermissionEngine {
   get canRemoveMembers(): boolean { return this.isAtLeastTier1; }
   get canEditMembers(): boolean { return this.isTier1; }
   get canAssignRoles(): boolean { return this.isAtLeastTier1; }
-  get canManageExecom(): boolean { return this.isAtLeastTier1; }
+  get canManageFolders(): boolean { return this.isAtLeastTier1; }
   get canManageGlobalPermissions(): boolean { return this.role === AppRole.chairman; }
-  get canManageExecomPermissions(): boolean { return this.isAtLeastTier1; }
-  get canManagePermissions(): boolean { return this.canManageGlobalPermissions || this.canManageExecomPermissions; }
+  get canManageFolderPermissions(): boolean { return this.isAtLeastTier1; }
+  get canManagePermissions(): boolean { return this.canManageGlobalPermissions || this.canManageFolderPermissions; }
 
   get _isCommitteeLead(): boolean {
     if (this.isAtLeastTier1) return true;
@@ -66,15 +66,15 @@ export class PermissionEngine {
     return false;
   }
 
-  canManageMembersInExecom(execomId: number): boolean {
+  canManageMembersInFolder(folderId: number): boolean {
     if (this.isAtLeastTier1) return true;
-    if (this.isAtLeastTier2 && this.isMemberOfExecom(execomId)) return true;
-    const fRole = (this.execomRoleIn(execomId) || '').toLowerCase();
+    if (this.isAtLeastTier2 && this.isMemberOfFolder(folderId)) return true;
+    const fRole = (this.folderRoleIn(folderId) || '').toLowerCase();
     return fRole.includes('chair') || fRole.includes('head');
   }
 
   isFeatureEnabledGlobally(feature: string): boolean {
-    const perms = this.execomPermissions[0] || [];
+    const perms = this.folderPermissions[0] || [];
     const perm = perms.find((p) => p.feature === feature);
     return perm ? perm.allowed : false;
   }
@@ -100,20 +100,20 @@ export class PermissionEngine {
     return false;
   }
 
-  // Execom Scopes
-  isMemberOfExecom(execomId: number): boolean {
-    return this.userExecomMemberships.some((m) => m.execom_id === execomId);
+  // Folder Scopes
+  isMemberOfFolder(folderId: number): boolean {
+    return this.userFolderMemberships.some((m) => m.folder_id === folderId);
   }
 
-  execomRoleIn(execomId: number): string | undefined {
-    const membership = this.userExecomMemberships.find((m) => m.execom_id === execomId);
-    return membership?.execom_role;
+  folderRoleIn(folderId: number): string | undefined {
+    const membership = this.userFolderMemberships.find((m) => m.folder_id === folderId);
+    return membership?.folder_role;
   }
 
-  canDoInExecom(execomId: number, feature: string): boolean {
+  canDoInFolder(folderId: number, feature: string): boolean {
     if (this.isEffectivelyTier1) return true;
 
-    const perms = this.execomPermissions[execomId] || [];
+    const perms = this.folderPermissions[folderId] || [];
     const perm = perms.find((p) => p.feature === feature);
 
     if (this.isAtLeastTier2) {
@@ -121,7 +121,7 @@ export class PermissionEngine {
       return true;
     }
 
-    if (!this.isMemberOfExecom(execomId)) return false;
+    if (!this.isMemberOfFolder(folderId)) return false;
 
     if (this.isAtLeastTier3) {
       if (perm !== undefined) return perm.allowed;
@@ -131,19 +131,19 @@ export class PermissionEngine {
     return perm ? perm.allowed : false;
   }
 
-  canCreateEventInExecom(execomId: number): boolean {
-    return this.canCreateEvents && this.canDoInExecom(execomId, ExecomFeature.createEvents);
+  canCreateEventInFolder(folderId: number): boolean {
+    return this.canCreateEvents && this.canDoInFolder(folderId, FolderFeature.createEvents);
   }
 
-  canUploadReportInExecom(execomId: number): boolean {
-    return this.canUploadReports && this.canDoInExecom(execomId, ExecomFeature.uploadReports);
+  canUploadReportInFolder(folderId: number): boolean {
+    return this.canUploadReports && this.canDoInFolder(folderId, FolderFeature.uploadReports);
   }
 
-  canViewBudgetInExecom(execomId: number): boolean {
-    return this.canAccessScopedBudget && this.canDoInExecom(execomId, ExecomFeature.viewBudget);
+  canViewBudgetInFolder(folderId: number): boolean {
+    return this.canAccessScopedBudget && this.canDoInFolder(folderId, FolderFeature.viewBudget);
   }
 
-  get userExecomIds(): number[] {
-    return this.userExecomMemberships.map((m) => m.execom_id);
+  get userFolderIds(): number[] {
+    return this.userFolderMemberships.map((m) => m.folder_id);
   }
 }

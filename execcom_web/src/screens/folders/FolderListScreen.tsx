@@ -1,39 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Plus, ArrowLeft, Trash } from 'lucide-react';
+import { Folder, Plus, ArrowLeft, MoreVertical, Trash } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
-import { ExecomModel } from '../../models/types';
 
-export const ExecomListScreen: React.FC = () => {
+export const FolderListScreen: React.FC = () => {
   const navigate = useNavigate();
   const { permissions, currentUser } = useAuth();
-  const [execoms, setExecoms] = useState<ExecomModel[]>([]);
+  const [folders, setFolders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newExecomName, setNewExecomName] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  const fetchExecoms = async () => {
+  const fetchFolders = async () => {
     if (!currentUser || !permissions) return;
     setIsLoading(true);
     try {
-      let query = supabase.from('execom').select('*');
+      let query = supabase.from('folders').select('*');
       
-      // If not Tier 2 or above, only show execom groups they are member of
+      // If not Tier 2 or above, only show folders they are member of
       if (!permissions.isAtLeastTier2) {
-        const { data: memberExecoms } = await supabase
-          .from('execom_members')
-          .select('execom_id')
+        const { data: memberFolders } = await supabase
+          .from('folder_members')
+          .select('folder_id')
           .eq('user_id', currentUser.id);
         
-        const execomIds = (memberExecoms || []).map((m) => m.execom_id);
-        if (execomIds.length > 0) {
-          query = query.in('id', execomIds);
+        const folderIds = (memberFolders || []).map((m) => m.folder_id);
+        if (folderIds.length > 0) {
+          query = query.in('id', folderIds);
         } else {
-          setExecoms([]);
+          setFolders([]);
           setIsLoading(false);
           return;
         }
@@ -41,105 +40,105 @@ export const ExecomListScreen: React.FC = () => {
 
       const { data, error } = await query.order('name');
       if (error) throw error;
-      setExecoms((data || []) as ExecomModel[]);
+      setFolders(data || []);
     } catch (e) {
-      console.error('Error fetching execom teams:', e);
+      console.error('Error fetching folders:', e);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchExecoms();
+    fetchFolders();
   }, [currentUser, permissions]);
 
-  const handleCreateExecom = async () => {
-    if (!newExecomName.trim()) return;
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
     setIsCreating(true);
     try {
       const { data, error } = await supabase
-        .from('execom')
-        .insert({ name: newExecomName.trim() })
+        .from('folders')
+        .insert({ name: newFolderName.trim() })
         .select()
         .single();
       
       if (error) throw error;
 
-      // Add current user as member of new execom as owner/lead
+      // Add current user as member of new folder as owner/lead
       if (data && currentUser) {
-        await supabase.from('execom_members').insert({
-          execom_id: data.id,
+        await supabase.from('folder_members').insert({
+          folder_id: data.id,
           user_id: currentUser.id,
-          execom_role: 'Owner',
+          folder_role: 'Owner',
         });
       }
 
-      setNewExecomName('');
+      setNewFolderName('');
       setShowCreateModal(false);
-      fetchExecoms();
+      fetchFolders();
     } catch (e) {
-      console.error('Error creating execom:', e);
-      alert('Failed to create execom');
+      console.error('Error creating folder:', e);
+      alert('Failed to create folder');
     } finally {
       setIsCreating(false);
     }
   };
 
-  const handleDeleteExecom = async (id: number, e: React.MouseEvent) => {
+  const handleDeleteFolder = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this execom team? All members and linked data will be removed.')) return;
+    if (!window.confirm('Are you sure you want to delete this forum? All members and linked data will be removed.')) return;
     
     try {
-      const { error } = await supabase.from('execom').delete().eq('id', id);
+      const { error } = await supabase.from('folders').delete().eq('id', id);
       if (error) throw error;
-      setExecoms(execoms.filter((f) => f.id !== id));
+      setFolders(folders.filter((f) => f.id !== id));
     } catch (e) {
       console.error('Delete error:', e);
-      alert('Failed to delete execom');
+      alert('Failed to delete folder');
     }
   };
 
   if (!currentUser || !permissions) return null;
 
   return (
-    <div className="execom-list-container">
+    <div className="folder-list-container">
       <header className="page-header">
         <button onClick={() => navigate('/home')} className="back-button">
           <ArrowLeft size={20} />
         </button>
-        <h2 className="page-title">Execom Teams</h2>
-        {permissions.canManageExecom && (
-          <button onClick={() => setShowCreateModal(true)} className="create-execom-button">
+        <h2 className="page-title">Active Forums</h2>
+        {permissions.canManageFolders && (
+          <button onClick={() => setShowCreateModal(true)} className="create-folder-button">
             <Plus size={20} />
           </button>
         )}
       </header>
 
       {isLoading ? (
-        <div className="execom-loading">Loading execom teams...</div>
-      ) : execoms.length === 0 ? (
-        <div className="execom-empty">No execom teams available.</div>
+        <div className="folders-loading">Loading active forums...</div>
+      ) : folders.length === 0 ? (
+        <div className="folders-empty">No forums available.</div>
       ) : (
-        <div className="execom-grid">
-          {execoms.map((execom) => (
+        <div className="folders-grid">
+          {folders.map((folder) => (
             <GlassCard
-              key={execom.id}
-              className="execom-card"
-              onClick={() => navigate(`/execom/${execom.id}`)}
+              key={folder.id}
+              className="folder-card"
+              onClick={() => navigate(`/folders/${folder.id}`)}
               padding="20px"
             >
-              <div className="execom-card-header">
-                <div className="execom-icon-circle">
-                  <Shield size={22} style={{ color: 'rgb(22, 192, 122)' }} />
+              <div className="folder-card-header">
+                <div className="folder-icon-circle">
+                  <Folder size={22} style={{ color: 'rgb(22, 192, 122)' }} />
                 </div>
-                {permissions.canManageExecom && (
-                  <button onClick={(e) => handleDeleteExecom(execom.id, e)} className="delete-card-button">
+                {permissions.canManageFolders && (
+                  <button onClick={(e) => handleDeleteFolder(folder.id, e)} className="delete-card-button">
                     <Trash size={16} />
                   </button>
                 )}
               </div>
-              <h4 className="execom-card-name">{execom.name}</h4>
-              <span className="execom-card-meta">Interactive Hub</span>
+              <h4 className="folder-card-name">{folder.name}</h4>
+              <span className="folder-card-meta">Interactive Hub</span>
             </GlassCard>
           ))}
         </div>
@@ -148,12 +147,12 @@ export const ExecomListScreen: React.FC = () => {
       {showCreateModal && (
         <div className="modal-overlay">
           <GlassCard className="modal-card" padding="24px">
-            <h3 className="modal-title">Create Execom Team</h3>
+            <h3 className="modal-title">Create Forum</h3>
             <input
               type="text"
-              placeholder="Execom Name (e.g. Design, Technical)"
-              value={newExecomName}
-              onChange={(e) => setNewExecomName(e.target.value)}
+              placeholder="Forum Name (e.g. IEEE, CSI)"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
               className="modal-input"
             />
             <div className="modal-actions-row">
@@ -165,9 +164,9 @@ export const ExecomListScreen: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleCreateExecom}
+                onClick={handleCreateFolder}
                 className="modal-submit-btn"
-                disabled={isCreating || !newExecomName.trim()}
+                disabled={isCreating || !newFolderName.trim()}
               >
                 {isCreating ? 'Creating...' : 'Create'}
               </button>
@@ -179,12 +178,12 @@ export const ExecomListScreen: React.FC = () => {
       <NavBar />
 
       <style>{`
-        .execom-list-container {
+        .folder-list-container {
           padding: 16px 20px;
         }
 
         @media (min-width: 768px) {
-          .execom-list-container {
+          .folder-list-container {
             padding: 24px 0;
           }
         }
@@ -197,14 +196,11 @@ export const ExecomListScreen: React.FC = () => {
           margin-bottom: 20px;
         }
 
-        .back-button, .create-execom-button {
+        .back-button, .create-folder-button {
           color: var(--text-primary);
           display: flex;
           align-items: center;
           justify-content: center;
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .page-title {
@@ -214,14 +210,14 @@ export const ExecomListScreen: React.FC = () => {
           color: var(--text-primary);
         }
 
-        .execom-loading, .execom-empty {
+        .folders-loading, .folders-empty {
           text-align: center;
           padding: 40px;
           font-size: 15px;
           color: var(--text-secondary);
         }
 
-        .execom-grid {
+        .folders-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 16px;
@@ -229,28 +225,27 @@ export const ExecomListScreen: React.FC = () => {
         }
 
         @media (min-width: 768px) {
-          .execom-grid {
+          .folders-grid {
             grid-template-columns: repeat(3, 1fr);
             gap: 20px;
           }
         }
 
         @media (min-width: 1200px) {
-          .execom-grid {
+          .folders-grid {
             grid-template-columns: repeat(4, 1fr);
             gap: 24px;
           }
         }
 
-        .execom-card {
+        .folder-card {
           display: flex;
           flex-direction: column;
           align-items: flex-start;
           text-align: left;
-          cursor: pointer;
         }
 
-        .execom-card-header {
+        .folder-card-header {
           width: 100%;
           display: flex;
           align-items: center;
@@ -258,7 +253,7 @@ export const ExecomListScreen: React.FC = () => {
           margin-bottom: 16px;
         }
 
-        .execom-icon-circle {
+        .folder-icon-circle {
           width: 44px;
           height: 44px;
           border-radius: 12px;
@@ -272,9 +267,6 @@ export const ExecomListScreen: React.FC = () => {
           color: var(--text-muted);
           opacity: 0.6;
           transition: all 0.2s ease;
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .delete-card-button:hover {
@@ -282,14 +274,14 @@ export const ExecomListScreen: React.FC = () => {
           opacity: 1;
         }
 
-        .execom-card-name {
+        .folder-card-name {
           font-size: 18px;
           font-weight: 700;
           color: var(--text-primary);
           margin-bottom: 4px;
         }
 
-        .execom-card-meta {
+        .folder-card-meta {
           font-size: 12px;
           color: var(--text-muted);
         }
@@ -324,12 +316,6 @@ export const ExecomListScreen: React.FC = () => {
 
         .modal-input {
           margin-bottom: 20px;
-          width: 100%;
-          padding: 10px 14px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid var(--border-light);
-          border-radius: 10px;
-          color: var(--text-primary);
         }
 
         .modal-actions-row {
@@ -343,9 +329,6 @@ export const ExecomListScreen: React.FC = () => {
           font-size: 14px;
           font-weight: 600;
           color: var(--text-secondary);
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .modal-submit-btn {
@@ -355,8 +338,6 @@ export const ExecomListScreen: React.FC = () => {
           border-radius: 10px;
           font-size: 14px;
           font-weight: 700;
-          border: none;
-          cursor: pointer;
         }
       `}</style>
     </div>

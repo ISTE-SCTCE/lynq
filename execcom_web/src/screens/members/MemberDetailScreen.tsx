@@ -11,12 +11,12 @@ import {
   Tag, 
   GraduationCap, 
   AlertTriangle,
-  Shield
+  FolderOpen
 } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { AppRole, AppRoleLabels } from '../../core/constants';
-import { UserModel, ExecomMemberModel, ExecomModel } from '../../models/types';
+import { UserModel, FolderMemberModel, FolderModel } from '../../models/types';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
 
@@ -33,13 +33,10 @@ export const MemberDetailScreen: React.FC = () => {
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState('member');
   
-  const [showExecomModal, setShowExecomModal] = useState(false);
-  const [execoms, setExecoms] = useState<ExecomModel[]>([]);
-  const [selectedExecom, setSelectedExecom] = useState<number | ''>('');
-  const [selectedExecomRole, setSelectedExecomRole] = useState('member');
-  
-  const [showTagModal, setShowTagModal] = useState(false);
-  const [newExecomTag, setNewExecomTag] = useState('');
+  const [showForumModal, setShowForumModal] = useState(false);
+  const [forums, setForums] = useState<FolderModel[]>([]);
+  const [selectedForum, setSelectedForum] = useState<number | ''>('');
+  const [selectedForumRole, setSelectedForumRole] = useState('member');
 
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -57,12 +54,11 @@ export const MemberDetailScreen: React.FC = () => {
       if (pError) throw pError;
       setUser(profile as UserModel);
       setSelectedRole(profile.role);
-      setNewExecomTag(profile.execom_tag || '');
 
-      // 2. Fetch memberships joined with execom
+      // 2. Fetch memberships joined with folders
       const { data: memberData, error: mError } = await supabase
-        .from('execom_members')
-        .select('*, execom:execom(id, name)')
+        .from('folder_members')
+        .select('*, folders:folders(id, name)')
         .eq('user_id', id);
 
       if (mError) throw mError;
@@ -79,39 +75,39 @@ export const MemberDetailScreen: React.FC = () => {
     loadUserData();
   }, [id]);
 
-  const loadExecoms = async () => {
+  const loadForums = async () => {
     try {
       const { data, error } = await supabase
-        .from('execom')
+        .from('folders')
         .select('*')
         .order('name');
 
       if (error) throw error;
       
-      const allExecoms = (data || []) as ExecomModel[];
-      const joinedIds = new Set(memberships.map((m) => m.execom_id));
-      const available = allExecoms.filter((f) => !joinedIds.has(f.id));
+      const allForums = (data || []) as FolderModel[];
+      const joinedIds = new Set(memberships.map((m) => m.folder_id));
+      const available = allForums.filter((f) => !joinedIds.has(f.id));
       
-      setExecoms(available);
+      setForums(available);
       if (available.length > 0) {
-        setSelectedExecom(available[0].id);
+        setSelectedForum(available[0].id);
       } else {
-        setSelectedExecom('');
+        setSelectedForum('');
       }
     } catch (e) {
-      console.error('Error loading execom list:', e);
+      console.error('Error loading forums list:', e);
     }
   };
 
-  const handleOpenExecomModal = () => {
-    loadExecoms();
-    setShowExecomModal(true);
+  const handleOpenForumModal = () => {
+    loadForums();
+    setShowForumModal(true);
   };
 
   const handleUpdateRole = async () => {
     if (!user || !currentUser) return;
     
-    // Restriction: Only Chair/Vice-Chair can promote to Execcom+
+    // Restriction matching Flutter: Only Chair/Vice-Chair can promote to Execcom+
     const targetRoleLevel = AppRole[selectedRole as keyof typeof AppRole] || AppRole.member;
     if (targetRoleLevel >= AppRole.forumExeccom) {
       const curRoleLevel = AppRole[currentUser.role as keyof typeof AppRole] || AppRole.member;
@@ -141,48 +137,26 @@ export const MemberDetailScreen: React.FC = () => {
     }
   };
 
-  const handleUpdateTag = async () => {
-    if (!user) return;
+  const handleAddToForum = async () => {
+    if (!user || selectedForum === '') return;
     setIsUpdating(true);
     try {
       const { error } = await supabase
-        .from('users')
-        .update({ execom_tag: newExecomTag.trim() || null })
-        .eq('id', user.id);
-
-      if (error) throw error;
-      
-      setShowTagModal(false);
-      loadUserData();
-      alert('Execom Tag updated successfully!');
-    } catch (e) {
-      console.error('Error saving execom tag change:', e);
-      alert('Failed to update Execom Tag');
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleAddToExecom = async () => {
-    if (!user || selectedExecom === '') return;
-    setIsUpdating(true);
-    try {
-      const { error } = await supabase
-        .from('execom_members')
+        .from('folder_members')
         .insert({
-          execom_id: selectedExecom,
+          folder_id: selectedForum,
           user_id: user.id,
-          execom_role: selectedExecomRole,
+          folder_role: selectedForumRole,
         });
 
       if (error) throw error;
 
-      setShowExecomModal(false);
+      setShowForumModal(false);
       loadUserData();
-      alert('Added to Execom team successfully!');
+      alert('Added to forum successfully!');
     } catch (e) {
-      console.error('Execom insertion error:', e);
-      alert('Failed to add to Execom team');
+      console.error('Forum insertion error:', e);
+      alert('Failed to add to forum');
     } finally {
       setIsUpdating(false);
     }
@@ -213,7 +187,6 @@ export const MemberDetailScreen: React.FC = () => {
     switch (role) {
       case 'chairman': return 'Chairman';
       case 'vice_chairman': return 'Vice Chair';
-      case 'faculty_advisor': return 'Faculty Advisor';
       case 'core_execcom': return 'Core Execcom';
       case 'forum_execcom':
       case 'execcom': return 'Execcom';
@@ -221,8 +194,6 @@ export const MemberDetailScreen: React.FC = () => {
       default: return role;
     }
   };
-
-  const isUserExecom = user && user.role !== 'member' && user.role !== 'restricted';
 
   if (!currentUser || !permissions || isLoading) {
     return <div className="members-loading">Loading profile details...</div>;
@@ -248,14 +219,6 @@ export const MemberDetailScreen: React.FC = () => {
         <h3 className="profile-card-name">{user.name}</h3>
         {user.post && <span className="profile-card-post">{user.post}</span>}
         <span className="profile-card-role">{getRoleLabel(user.role)}</span>
-        
-        {/* Render Execom tag as requested */}
-        {isUserExecom && user.execom_tag && (
-          <span className="profile-card-execom-tag">
-            Team: {user.execom_tag}
-          </span>
-        )}
-        
         <span className="profile-card-email">{user.email}</span>
       </GlassCard>
 
@@ -295,13 +258,13 @@ export const MemberDetailScreen: React.FC = () => {
         </GlassCard>
       </section>
 
-      {/* Execom Memberships */}
+      {/* Forum Memberships */}
       <section className="details-section-block">
-        <h3 className="section-title">EXECOM MEMBERSHIPS</h3>
+        <h3 className="section-title">FORUM MEMBERSHIPS</h3>
         <div className="memberships-list">
           {user.forum && (
             <GlassCard className="membership-row-card" padding="12px 16px">
-              <Shield size={18} style={{ marginRight: '12px', color: 'rgb(22, 192, 122)' }} />
+              <FolderOpen size={18} style={{ marginRight: '12px', color: 'rgb(22, 192, 122)' }} />
               <span className="membership-name">Primary: {user.forum}</span>
               <span className="membership-badge">Primary</span>
             </GlassCard>
@@ -309,14 +272,14 @@ export const MemberDetailScreen: React.FC = () => {
 
           {memberships.map((m) => (
             <GlassCard key={m.id} className="membership-row-card" padding="12px 16px">
-              <Shield size={18} style={{ marginRight: '12px' }} />
-              <span className="membership-name">{m.execom?.name || `Team #${m.execom_id}`}</span>
-              <span className="membership-badge">{m.execom_role.toUpperCase()}</span>
+              <FolderOpen size={18} style={{ marginRight: '12px' }} />
+              <span className="membership-name">{m.folders?.name || `Forum #${m.folder_id}`}</span>
+              <span className="membership-badge">{m.folder_role.toUpperCase()}</span>
             </GlassCard>
           ))}
 
           {memberships.length === 0 && !user.forum && (
-            <div className="memberships-empty-msg">No Execom memberships.</div>
+            <div className="memberships-empty-msg">No forum memberships.</div>
           )}
         </div>
       </section>
@@ -326,17 +289,12 @@ export const MemberDetailScreen: React.FC = () => {
         <section className="details-section-block" style={{ marginBottom: '40px' }}>
           <h3 className="section-title">ACTIONS</h3>
           <div className="actions-button-wrap">
-            <button onClick={handleOpenExecomModal} className="action-pill-btn flex-center">
-              <Plus size={16} style={{ marginRight: '4px' }} /> Add to Team
+            <button onClick={handleOpenForumModal} className="action-pill-btn flex-center">
+              <Plus size={16} style={{ marginRight: '4px' }} /> Add to Forum
             </button>
             {permissions.canAssignRoles && (
               <button onClick={() => setShowRoleModal(true)} className="action-pill-btn flex-center">
                 Change Role
-              </button>
-            )}
-            {isUserExecom && (
-              <button onClick={() => setShowTagModal(true)} className="action-pill-btn flex-center">
-                Set Execom Tag
               </button>
             )}
             {permissions.canRemoveMembers && (
@@ -363,10 +321,10 @@ export const MemberDetailScreen: React.FC = () => {
             >
               {Object.keys(AppRoleLabels).map((levelStr) => {
                 const level = parseInt(levelStr);
+                // Exclude restricted as per Flutter code: values.where(r != AppRole.restricted)
                 if (level === AppRole.restricted) return null;
                 const dbStr = level === AppRole.chairman ? 'chairman' :
                               level === AppRole.viceChairman ? 'vice_chairman' :
-                              level === AppRole.facultyAdvisor ? 'faculty_advisor' :
                               level === AppRole.coreExeccom ? 'core_execcom' :
                               level === AppRole.forumExeccom ? 'forum_execcom' :
                               level === AppRole.panel ? 'panel' : 'member';
@@ -390,47 +348,21 @@ export const MemberDetailScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Execom Tag Modal */}
-      {showTagModal && (
+      {/* Add To Forum Modal */}
+      {showForumModal && (
         <div className="modal-overlay">
           <GlassCard className="modal-card" padding="24px">
-            <h3 className="modal-title">Set Execom Team Tag</h3>
-            <input
-              type="text"
-              placeholder="e.g. Technical, Marketing"
-              value={newExecomTag}
-              onChange={(e) => setNewExecomTag(e.target.value)}
-              className="modal-select-field"
-              style={{ background: 'rgba(255, 255, 255, 0.05)', color: '#fff', border: '1px solid var(--border-light)' }}
-            />
-            
-            <div className="modal-actions-row" style={{ marginTop: '16px' }}>
-              <button onClick={() => setShowTagModal(false)} className="modal-cancel-btn" disabled={isUpdating}>
-                Cancel
-              </button>
-              <button onClick={handleUpdateTag} className="modal-submit-btn" disabled={isUpdating}>
-                {isUpdating ? 'Saving...' : 'Save Tag'}
-              </button>
-            </div>
-          </GlassCard>
-        </div>
-      )}
-
-      {/* Add To Execom Modal */}
-      {showExecomModal && (
-        <div className="modal-overlay">
-          <GlassCard className="modal-card" padding="24px">
-            <h3 className="modal-title">Add to Execom Team</h3>
+            <h3 className="modal-title">Add to Forum</h3>
             
             <div style={{ marginBottom: '16px' }}>
-              <label className="modal-input-label">Select Team</label>
+              <label className="modal-input-label">Select Forum</label>
               <select
-                value={selectedExecom}
-                onChange={(e) => setSelectedExecom(parseInt(e.target.value))}
+                value={selectedForum}
+                onChange={(e) => setSelectedForum(parseInt(e.target.value))}
                 className="modal-select-field"
-                disabled={execoms.length === 0}
+                disabled={forums.length === 0}
               >
-                {execoms.map((f) => (
+                {forums.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
                   </option>
@@ -439,10 +371,10 @@ export const MemberDetailScreen: React.FC = () => {
             </div>
 
             <div style={{ marginBottom: '24px' }}>
-              <label className="modal-input-label">Role in Team</label>
+              <label className="modal-input-label">Role in Forum</label>
               <select
-                value={selectedExecomRole}
-                onChange={(e) => setSelectedExecomRole(e.target.value)}
+                value={selectedForumRole}
+                onChange={(e) => setSelectedForumRole(e.target.value)}
                 className="modal-select-field"
               >
                 {['chair', 'vice_chair', 'head', 'secretary', 'joint_secretary', 'member'].map((r) => (
@@ -454,13 +386,13 @@ export const MemberDetailScreen: React.FC = () => {
             </div>
 
             <div className="modal-actions-row">
-              <button onClick={() => setShowExecomModal(false)} className="modal-cancel-btn" disabled={isUpdating}>
+              <button onClick={() => setShowForumModal(false)} className="modal-cancel-btn" disabled={isUpdating}>
                 Cancel
               </button>
               <button 
-                onClick={handleAddToExecom} 
+                onClick={handleAddToForum} 
                 className="modal-submit-btn" 
-                disabled={isUpdating || selectedExecom === ''}
+                disabled={isUpdating || selectedForum === ''}
               >
                 {isUpdating ? 'Adding...' : 'Add'}
               </button>
@@ -486,9 +418,6 @@ export const MemberDetailScreen: React.FC = () => {
 
         .back-button {
           color: var(--text-primary);
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .page-title {
@@ -543,17 +472,6 @@ export const MemberDetailScreen: React.FC = () => {
           font-size: 13px;
           color: var(--text-secondary);
           margin-bottom: 4px;
-        }
-
-        .profile-card-execom-tag {
-          font-size: 12px;
-          font-weight: 700;
-          color: #ffffff;
-          background: linear-gradient(135deg, rgb(15, 117, 73) 0%, rgb(22, 192, 122) 100%);
-          border-radius: 8px;
-          padding: 3px 10px;
-          margin-bottom: 8px;
-          text-transform: uppercase;
         }
 
         .profile-card-email {
@@ -661,7 +579,6 @@ export const MemberDetailScreen: React.FC = () => {
           color: rgb(22, 192, 122);
           background: rgba(22, 192, 122, 0.08);
           transition: all 0.2s ease;
-          cursor: pointer;
         }
 
         .action-pill-btn:hover {
@@ -736,9 +653,6 @@ export const MemberDetailScreen: React.FC = () => {
           font-size: 14px;
           font-weight: 600;
           color: var(--text-secondary);
-          background: none;
-          border: none;
-          cursor: pointer;
         }
 
         .modal-submit-btn {
@@ -748,8 +662,6 @@ export const MemberDetailScreen: React.FC = () => {
           border-radius: 10px;
           font-size: 14px;
           font-weight: 700;
-          border: none;
-          cursor: pointer;
         }
       `}</style>
     </div>

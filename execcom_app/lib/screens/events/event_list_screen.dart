@@ -14,8 +14,8 @@ import '../../shared/widgets/liquid_glass_nav_bar.dart';
 import 'package:provider/provider.dart';
 
 class EventListScreen extends StatefulWidget {
-  final int? execomId;
-  const EventListScreen({super.key, this.execomId});
+  final int? folderId;
+  const EventListScreen({super.key, this.folderId});
 
   @override
   State<EventListScreen> createState() => _EventListScreenState();
@@ -81,8 +81,8 @@ class _EventListScreenState extends State<EventListScreen> {
           .from('events')
           .select();
           
-      if (widget.execomId != null) {
-        query = query.eq('execom_id', widget.execomId!);
+      if (widget.folderId != null) {
+        query = query.eq('folder_id', widget.folderId!);
       }
 
       final data = await query
@@ -166,10 +166,10 @@ class _EventListScreenState extends State<EventListScreen> {
       appBar: AppBar(
         title: Text('Upcoming Events', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
         actions: [
-          if (perms.isAtLeastTier2 || (widget.execomId != null && perms.canDoInExecom(widget.execomId!, 'create_events')))
+          if (perms.isAtLeastTier2 || (widget.folderId != null && perms.canDoInFolder(widget.folderId!, 'create_events')))
             IconButton(
               icon: const Icon(Icons.add_circle_outline),
-              onPressed: () => context.push('/events/create${widget.execomId != null ? '?folder=${widget.execomId}' : ''}'),
+              onPressed: () => context.push('/events/create${widget.folderId != null ? '?folder=${widget.folderId}' : ''}'),
             ),
         ],
       ),

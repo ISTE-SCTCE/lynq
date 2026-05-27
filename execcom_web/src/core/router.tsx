@@ -7,9 +7,9 @@ import { AppRole } from './constants';
 import { SplashScreen } from '../screens/splash/SplashScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { HomeScreen } from '../screens/home/HomeScreen';
-import { ExecomListScreen } from '../screens/execom/ExecomListScreen';
-import { ExecomDetailScreen } from '../screens/execom/ExecomDetailScreen';
-import { ExecomPermissionsScreen } from '../screens/execom/ExecomPermissionsScreen';
+import { FolderListScreen } from '../screens/folders/FolderListScreen';
+import { FolderDetailScreen } from '../screens/folders/FolderDetailScreen';
+import { FolderPermissionsScreen } from '../screens/folders/FolderPermissionsScreen';
 import { MemberListScreen } from '../screens/members/MemberListScreen';
 import { MemberDetailScreen } from '../screens/members/MemberDetailScreen';
 import { AddMemberScreen } from '../screens/members/AddMemberScreen';
@@ -84,11 +84,11 @@ export const AppRouter: React.FC = () => {
           <Route path="/home" element={<HomeScreen />} />
           <Route path="/more" element={<MoreScreen />} />
 
-          {/* Execom */}
-          <Route path="/execom" element={<ExecomListScreen />} />
-          <Route path="/execom/:id" element={<ExecomDetailScreen />} />
-          <Route element={<PermissionGuard check={(p) => p.canManageExecomPermissions} />}>
-            <Route path="/execom/:id/permissions" element={<ExecomPermissionsScreen />} />
+          {/* Folders */}
+          <Route path="/folders" element={<FolderListScreen />} />
+          <Route path="/folders/:id" element={<FolderDetailScreen />} />
+          <Route element={<PermissionGuard check={(p) => p.canManageFolderPermissions} />}>
+            <Route path="/folders/:id/permissions" element={<FolderPermissionsScreen />} />
           </Route>
 
           {/* Members */}

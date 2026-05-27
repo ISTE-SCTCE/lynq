@@ -11,8 +11,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class EventFormScreen extends StatefulWidget {
-  final int? execomId;
-  const EventFormScreen({super.key, this.execomId});
+  final int? folderId;
+  const EventFormScreen({super.key, this.folderId});
 
   @override
   State<EventFormScreen> createState() => _EventFormScreenState();
@@ -81,7 +81,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'title': _titleCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
         'date': _selectedDate.toIso8601String().split('T').first,
-        'execom_id': widget.execomId,
+        'folder_id': widget.folderId,
         'created_by': Supabase.instance.client.auth.currentUser?.id,
         'member_price': int.tryParse(_memberPriceCtrl.text.trim()) ?? 0,
         'non_member_price': int.tryParse(_nonMemberPriceCtrl.text.trim()) ?? 0,

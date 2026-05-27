@@ -37,7 +37,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
   double _totalPlanned = 0; // Pending requests amount
   double _forumAllocation = 0; // Allocation for current user's forum
   bool _isArchivedView = false;
-  List<int> _myExecomIds = []; // Execoms the user belongs to
+  List<int> _myFolderIds = []; // Folders the user belongs to
   List<Map<String, dynamic>> _allCategories = []; // All categories for setup
   List<EventBudgetModel> _eventBudgets = []; // Event specific budgets
   List<Map<String, dynamic>> _ledgerEntries = []; // Detailed ledger data
@@ -84,18 +84,18 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
 
       // 1. Get user's folder memberships
       final membershipData = await Supabase.instance.client
-          .from('execom_members')
-          .select('execom_id')
+          .from('folder_members')
+          .select('folder_id')
           .eq('user_id', user.id);
       
-      _myExecomIds = (membershipData as List).map((m) => m['execom_id'] as int).toList();
+      _myFolderIds = (membershipData as List).map((m) => m['folder_id'] as int).toList();
 
       // 2. Load requests
       final perms = context.read<AuthProvider>().permissions;
       var query = Supabase.instance.client.from('budget_requests').select();
       
       if (perms != null && !perms.isAtLeastTier2) {
-        query = query.inFilter('execom_id', _myExecomIds);
+        query = query.inFilter('folder_id', _myFolderIds);
       }
 
       final data = await query.order('created_at', ascending: false).range(0, 50);
@@ -123,11 +123,11 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
           }
         }
       } else {
-        // Scoped view - only see transactions from their execom
+        // Scoped view - only see transactions from their folders
         final ledgerData = await Supabase.instance.client
             .from('financial_ledger')
             .select()
-            .inFilter('execom_id', _myExecomIds)
+            .inFilter('folder_id', _myFolderIds)
             .order('transaction_date', ascending: false);
             
         _ledgerEntries = List<Map<String, dynamic>>.from(ledgerData);
@@ -153,11 +153,11 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
           .fold(0, (sum, r) => sum + r.amount);
 
       // 5. Fetch Forum Allocation (if scoped view)
-      if (!canViewTotal && _myExecomIds.isNotEmpty) {
+      if (!canViewTotal && _myFolderIds.isNotEmpty) {
         final allocationData = await Supabase.instance.client
-            .from('execom_budgets')
+            .from('forum_budgets')
             .select('allocated_amount')
-            .filter('execom_id', 'in', '(${_myExecomIds.join(',')})');
+            .filter('folder_id', 'in', '(${_myFolderIds.join(',')})');
         
         double totalAllocation = 0;
         if (allocationData != null) {
@@ -557,7 +557,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
       backgroundColor: Colors.transparent,
       builder: (context) => _NewTransactionSheet(
         isIncomeInitial: isIncomeInitial,
-        myExecomIds: _myExecomIds,
+        myFolderIds: _myFolderIds,
       ),
     ).then((_) => _loadBudget());
   }
@@ -997,7 +997,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
                         style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        'Execom #${req.execomId}',
+                        'Folder #${req.folderId}',
                         style: GoogleFonts.inter(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey[600]),
                       ),
                     ],
@@ -1354,8 +1354,8 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
 
 class _NewTransactionSheet extends StatefulWidget {
   final bool isIncomeInitial;
-  final List<int> myExecomIds;
-  const _NewTransactionSheet({required this.isIncomeInitial, required this.myExecomIds});
+  final List<int> myFolderIds;
+  const _NewTransactionSheet({required this.isIncomeInitial, required this.myFolderIds});
 
   @override
   State<_NewTransactionSheet> createState() => _NewTransactionSheetState();
@@ -1473,7 +1473,7 @@ class _NewTransactionSheetState extends State<_NewTransactionSheet> {
         'created_by': user?.id,
         'transaction_date': DateTime.now().toIso8601String(),
         'event_id': !isIncome ? _selectedEventId : null,
-        'execom_id': widget.myExecomIds.isNotEmpty ? widget.myExecomIds.first : null,
+        'folder_id': widget.myFolderIds.isNotEmpty ? widget.myFolderIds.first : null,
         'attachment_url': attachmentUrl,
       });
       

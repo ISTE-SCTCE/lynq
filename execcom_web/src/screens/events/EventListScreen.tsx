@@ -13,8 +13,8 @@ export const EventListScreen: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { currentUser, permissions } = useAuth();
-  const execomParam = searchParams.get('execom');
-  const execomId = execomParam ? parseInt(execomParam) : null;
+  const folderParam = searchParams.get('folder');
+  const folderId = folderParam ? parseInt(folderParam) : null;
 
   const [events, setEvents] = useState<EventModel[]>([]);
   const [creatorRoles, setCreatorRoles] = useState<Record<string, string>>({});
@@ -25,8 +25,8 @@ export const EventListScreen: React.FC = () => {
     setIsLoading(true);
     try {
       let query = supabase.from('events').select('*');
-      if (execomId) {
-        query = query.eq('execom_id', execomId);
+      if (folderId) {
+        query = query.eq('folder_id', folderId);
       }
 
       const { data: eventsData, error: eError } = await query
@@ -63,7 +63,7 @@ export const EventListScreen: React.FC = () => {
 
   useEffect(() => {
     loadEvents();
-  }, [execomId]);
+  }, [folderId]);
 
   const canDeleteEvent = (event: EventModel) => {
     if (!permissions || !currentUser) return false;
@@ -99,7 +99,7 @@ export const EventListScreen: React.FC = () => {
 
   // Filter events matching selected date
   const filteredEvents = events.filter((e) => e.date === selectedDate);
-  const canAdd = permissions.isAtLeastTier2 || (execomId && permissions.canDoInExecom(execomId, 'create_events'));
+  const canAdd = permissions.isAtLeastTier2 || (folderId && permissions.canDoInFolder(folderId, 'create_events'));
 
   // Map events to the calendar expected structure
   const mappedEventsData: EventsData = {};
@@ -115,13 +115,13 @@ export const EventListScreen: React.FC = () => {
   return (
     <div className="event-list-container">
       <header className="page-header">
-        <button onClick={() => navigate(execomId ? `/execom/${execomId}` : '/home')} className="back-button">
+        <button onClick={() => navigate(folderId ? `/folders/${folderId}` : '/home')} className="back-button">
           <ArrowLeft size={20} />
         </button>
         <h2 className="page-title">Upcoming Events</h2>
         {canAdd ? (
           <button 
-            onClick={() => navigate(`/events/create${execomId ? `?execom=${execomId}` : ''}`)} 
+            onClick={() => navigate(`/events/create${folderId ? `?folder=${folderId}` : ''}`)} 
             className="create-event-btn"
           >
             <Plus size={20} />

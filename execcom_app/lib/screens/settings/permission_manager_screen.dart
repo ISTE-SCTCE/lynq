@@ -6,7 +6,7 @@ import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../core/auth_provider.dart';
 import '../../models/user_model.dart';
-import '../../models/execom_model.dart';
+import '../../models/folder_model.dart';
 import '../../shared/widgets/glass_card.dart';
 
 class PermissionManagerScreen extends StatefulWidget {
@@ -22,8 +22,8 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
   
   // Data
   List<UserModel> _allUsers = [];
-  List<ExecomModel> _forums = [];
-  List<ExecomPermissionModel> _allPermissions = [];
+  List<FolderModel> _forums = [];
+  List<FolderPermissionModel> _allPermissions = [];
   List<UserModel> _authorizedCoreMembers = [];
   
   bool _isLoading = true;
@@ -41,16 +41,16 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
     try {
       final responses = await Future.wait([
         _supabase.from('users').select().order('name'),
-        _supabase.from('execom').select().eq('is_forum', true).order('name'),
-        _supabase.from('execom_permissions').select(),
-        _supabase.from('execom_members').select('*, users(*)').eq('execom_id', 0),
+        _supabase.from('folders').select().eq('is_forum', true).order('name'),
+        _supabase.from('folder_permissions').select(),
+        _supabase.from('folder_members').select('*, users(*)').eq('folder_id', 0),
       ]);
 
       if (mounted) {
         setState(() {
           _allUsers = (responses[0] as List).map((u) => UserModel.fromJson(u)).toList();
-          _forums = (responses[1] as List).map((f) => ExecomModel.fromJson(f)).toList();
-          _allPermissions = (responses[2] as List).map((p) => ExecomPermissionModel.fromJson(p)).toList();
+          _forums = (responses[1] as List).map((f) => FolderModel.fromJson(f)).toList();
+          _allPermissions = (responses[2] as List).map((p) => FolderPermissionModel.fromJson(p)).toList();
           _authorizedCoreMembers = (responses[3] as List)
               .where((m) => m['users'] != null)
               .map((m) => UserModel.fromJson(m['users']))
@@ -77,15 +77,15 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
   }
 
   // ── Permission Toggles ──
-  Future<void> _togglePermission(int execomId, String feature, bool current) async {
+  Future<void> _togglePermission(int folderId, String feature, bool current) async {
     try {
-      final existing = _allPermissions.where((p) => p.execomId == execomId && p.feature == feature).firstOrNull;
+      final existing = _allPermissions.where((p) => p.folderId == folderId && p.feature == feature).firstOrNull;
       
       if (existing != null) {
-        await _supabase.from('execom_permissions').update({'allowed': !current}).eq('id', existing.id);
+        await _supabase.from('folder_permissions').update({'allowed': !current}).eq('id', existing.id);
       } else {
-        await _supabase.from('execom_permissions').insert({
-          'execom_id': execomId,
+        await _supabase.from('folder_permissions').insert({
+          'folder_id': folderId,
           'feature': feature,
           'allowed': !current,
         });
@@ -104,10 +104,10 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
     );
     if (user != null) {
       try {
-        await _supabase.from('execom_members').insert({
-          'execom_id': 0,
+        await _supabase.from('folder_members').insert({
+          'folder_id': 0,
           'user_id': user.id,
-          'execom_role': 'viewer', // PermissionEngine handles the feature flags
+          'folder_role': 'viewer', // PermissionEngine handles the feature flags
         });
         _fetchAllData();
       } catch (e) {
@@ -118,7 +118,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
 
   Future<void> _removeAuthorizedMember(UserModel user) async {
     try {
-      await _supabase.from('execom_members').delete().eq('execom_id', 0).eq('user_id', user.id);
+      await _supabase.from('folder_members').delete().eq('folder_id', 0).eq('user_id', user.id);
       _fetchAllData();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error removing member: $e')));
@@ -267,9 +267,9 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
             title: Text(forum.name, style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
             subtitle: Text('Forum Visual Visibility', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
             children: [
-              _buildPermissionToggle(forum.id, ExecomFeature.viewBudget, 'Show Budget Bar'),
-              _buildPermissionToggle(forum.id, ExecomFeature.requestBudget, 'Allow Budget Requests'),
-              _buildPermissionToggle(forum.id, ExecomFeature.uploadReports, 'Allow Report Uploads'),
+              _buildPermissionToggle(forum.id, FolderFeature.viewBudget, 'Show Budget Bar'),
+              _buildPermissionToggle(forum.id, FolderFeature.requestBudget, 'Allow Budget Requests'),
+              _buildPermissionToggle(forum.id, FolderFeature.uploadReports, 'Allow Report Uploads'),
             ],
           ),
         );
@@ -290,9 +290,9 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
               const SizedBox(height: 8),
               Text('Control what features summarized Core members can see globally.', style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
               const Divider(height: 32),
-              _buildPermissionToggle(0, ExecomFeature.viewTotalBudget, 'View Total Organization Budget'),
-              _buildPermissionToggle(0, ExecomFeature.viewReports, 'View All Submitted Reports'),
-              _buildPermissionToggle(0, ExecomFeature.manageAll, 'Global Management Access'),
+              _buildPermissionToggle(0, FolderFeature.viewTotalBudget, 'View Total Organization Budget'),
+              _buildPermissionToggle(0, FolderFeature.viewReports, 'View All Submitted Reports'),
+              _buildPermissionToggle(0, FolderFeature.manageAll, 'Global Management Access'),
             ],
           ),
         ),
@@ -345,14 +345,14 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
     );
   }
 
-  Widget _buildPermissionToggle(int execomId, String feature, String label) {
-    final isAllowed = _allPermissions.any((p) => p.execomId == execomId && p.feature == feature && p.allowed);
+  Widget _buildPermissionToggle(int folderId, String feature, String label) {
+    final isAllowed = _allPermissions.any((p) => p.folderId == folderId && p.feature == feature && p.allowed);
     return ListTile(
       title: Text(label, style: GoogleFonts.inter(fontSize: 14)),
       trailing: Switch(
         value: isAllowed,
         activeColor: AppTheme.secondary,
-        onChanged: (val) => _togglePermission(execomId, feature, isAllowed),
+        onChanged: (val) => _togglePermission(folderId, feature, isAllowed),
       ),
     );
   }

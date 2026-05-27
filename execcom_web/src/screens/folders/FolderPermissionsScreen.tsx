@@ -3,13 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Loader } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
-import { ExecomFeature } from '../../core/constants';
+import { FolderFeature } from '../../core/constants';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
 
-export const ExecomPermissionsScreen: React.FC = () => {
+export const FolderPermissionsScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const execomId = parseInt(id || '0');
+  const folderId = parseInt(id || '0');
   const navigate = useNavigate();
   const { permissions, currentUser } = useAuth();
   const [featureMap, setFeatureMap] = useState<Record<string, boolean>>({});
@@ -17,20 +17,20 @@ export const ExecomPermissionsScreen: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (!execomId || !currentUser) return;
+    if (!folderId || !currentUser) return;
 
     const fetchPermissions = async () => {
       setIsLoading(true);
       try {
         const { data, error } = await supabase
-          .from('execom_permissions')
+          .from('folder_permissions')
           .select('*')
-          .eq('execom_id', execomId);
+          .eq('folder_id', folderId);
 
         if (error) throw error;
 
         const mapped: Record<string, boolean> = {};
-        ExecomFeature.all.forEach((f) => {
+        FolderFeature.all.forEach((f) => {
           mapped[f] = false;
         });
 
@@ -47,7 +47,7 @@ export const ExecomPermissionsScreen: React.FC = () => {
     };
 
     fetchPermissions();
-  }, [execomId, currentUser]);
+  }, [folderId, currentUser]);
 
   const handleToggle = (feature: string) => {
     setFeatureMap((prev) => ({
@@ -60,19 +60,19 @@ export const ExecomPermissionsScreen: React.FC = () => {
     setIsSaving(true);
     try {
       // Upsert permissions to guarantee existence
-      const upserts = ExecomFeature.all.map((feature) => ({
-        execom_id: execomId,
+      const upserts = FolderFeature.all.map((feature) => ({
+        folder_id: folderId,
         feature,
         allowed: featureMap[feature] || false,
       }));
 
       const { error } = await supabase
-        .from('execom_permissions')
-        .upsert(upserts, { onConflict: 'execom_id,feature' });
+        .from('folder_permissions')
+        .upsert(upserts, { onConflict: 'folder_id,feature' });
 
       if (error) throw error;
       alert('Permissions saved successfully!');
-      navigate(`/execom/${execomId}`);
+      navigate(`/folders/${folderId}`);
     } catch (e) {
       console.error('Save permissions error:', e);
       alert('Failed to save permissions');
@@ -86,10 +86,10 @@ export const ExecomPermissionsScreen: React.FC = () => {
   return (
     <div className="permissions-screen-container">
       <header className="page-header">
-        <button onClick={() => navigate(`/execom/${execomId}`)} className="back-button">
+        <button onClick={() => navigate(`/folders/${folderId}`)} className="back-button">
           <ArrowLeft size={20} />
         </button>
-        <h2 className="page-title">Execom Permissions</h2>
+        <h2 className="page-title">Forum Permissions</h2>
         <button 
           onClick={handleSave} 
           disabled={isSaving || isLoading} 
@@ -104,10 +104,10 @@ export const ExecomPermissionsScreen: React.FC = () => {
       ) : (
         <div className="permissions-content-list" style={{ marginBottom: '40px' }}>
           <p className="permissions-desc-text">
-            Toggle which features are enabled for members within this execom team.
+            Toggle which features are enabled for members within this folder.
           </p>
 
-          {ExecomFeature.all.map((feature) => {
+          {FolderFeature.all.map((feature) => {
             const isAllowed = featureMap[feature] || false;
             return (
               <GlassCard 
@@ -116,7 +116,7 @@ export const ExecomPermissionsScreen: React.FC = () => {
                 padding="14px 20px"
               >
                 <div className="toggle-row">
-                  <span className="feature-label">{ExecomFeature.label(feature)}</span>
+                  <span className="feature-label">{FolderFeature.label(feature)}</span>
                   <label className="switch-input-container">
                     <input 
                       type="checkbox" 
@@ -149,12 +149,6 @@ export const ExecomPermissionsScreen: React.FC = () => {
 
         .back-button, .save-button {
           color: var(--text-primary);
-          background: none;
-          border: none;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
         }
 
         .save-button:disabled {
