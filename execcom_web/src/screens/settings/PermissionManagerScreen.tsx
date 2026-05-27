@@ -108,10 +108,24 @@ export const PermissionManagerScreen: React.FC = () => {
   };
 
   const handleTogglePermission = async (execomId: number, feature: string, isCurrentlyAllowed: boolean) => {
+    // Optimistic update — flip immediately in local state so UI responds instantly
+    setAllPermissions((prev: any[]) => {
+      const existing = prev.find(p => p.execom_id === execomId && p.feature === feature);
+      if (existing) {
+        return prev.map(p =>
+          p.execom_id === execomId && p.feature === feature
+            ? { ...p, allowed: !isCurrentlyAllowed }
+            : p
+        );
+      } else {
+        return [...prev, { execom_id: execomId, feature, allowed: !isCurrentlyAllowed, id: null }];
+      }
+    });
+
     try {
       const existing = allPermissions.find(p => p.execom_id === execomId && p.feature === feature);
-      
-      if (existing) {
+
+      if (existing && existing.id) {
         const { error } = await supabase
           .from('execom_permissions')
           .update({ allowed: !isCurrentlyAllowed })
@@ -120,17 +134,20 @@ export const PermissionManagerScreen: React.FC = () => {
       } else {
         const { error } = await supabase
           .from('execom_permissions')
-          .insert({
-            execom_id: execomId,
-            feature: feature,
-            allowed: !isCurrentlyAllowed
-          });
+          .insert({ execom_id: execomId, feature, allowed: !isCurrentlyAllowed });
         if (error) throw error;
       }
 
-      fetchAllData();
+      // Refresh in background to get real DB ids (no loading spinner)
+      supabase.from('execom_permissions').select().then(({ data }) => {
+        if (data) setAllPermissions(data);
+      });
     } catch (e: any) {
-      alert('Failed to modify feature permission: ' + e.message);
+      // Revert optimistic update on failure
+      supabase.from('execom_permissions').select().then(({ data }) => {
+        if (data) setAllPermissions(data);
+      });
+      alert('Failed to modify permission: ' + e.message);
     }
   };
 
@@ -187,35 +204,26 @@ export const PermissionManagerScreen: React.FC = () => {
       </header>
 
       {/* Selector Tabs */}
-      <div className="perm-tabs flex-center" style={{ overflowX: 'auto', gap: '4px' }}>
-        <button 
-          onClick={() => setActiveTab('members')}
-          className={`perm-tab-btn flex-center ${activeTab === 'members' ? 'active' : ''}`}
-        >
-          <Users size={14} style={{ marginRight: '5px' }} />
-          Members
-        </button>
-        <button 
-          onClick={() => setActiveTab('execom')}
-          className={`perm-tab-btn flex-center ${activeTab === 'execom' ? 'active' : ''}`}
-        >
-          <Shield size={14} style={{ marginRight: '5px' }} />
-          Execom
-        </button>
-        <button 
-          onClick={() => setActiveTab('budget')}
-          className={`perm-tab-btn flex-center ${activeTab === 'budget' ? 'active budget-tab-active' : ''}`}
-        >
-          <Wallet size={14} style={{ marginRight: '5px' }} />
-          Budget
-        </button>
-        <button 
-          onClick={() => setActiveTab('core')}
-          className={`perm-tab-btn flex-center ${activeTab === 'core' ? 'active' : ''}`}
-        >
-          <Shield size={14} style={{ marginRight: '5px' }} />
-          Core
-        </button>
+      <div className="perm-tabs">
+        {(['members', 'execom', 'budget', 'core'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`perm-tab-btn ${
+              activeTab === tab
+                ? tab === 'budget'
+                  ? 'active-budget'
+                  : 'active-default'
+                : ''
+            }`}
+          >
+            {tab === 'members' && <Users size={13} />}
+            {tab === 'execom' && <Shield size={13} />}
+            {tab === 'budget' && <Wallet size={13} />}
+            {tab === 'core' && <Shield size={13} />}
+            <span>{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
+          </button>
+        ))}
       </div>
 
       {isLoading ? (
@@ -305,122 +313,56 @@ export const PermissionManagerScreen: React.FC = () => {
           ))}
         </div>
       ) : activeTab === 'budget' ? (
-        // Tab 3: Per-group Budget Visibility — Tier 2 teams only
+        // Tab 3: Per-group Total Budget visibility — Tier 2 teams, independently controlled
         <div className="budget-perms-flow" style={{ marginTop: '16px' }}>
           {/* Info banner */}
           <div className="budget-info-banner">
             <Wallet size={15} style={{ flexShrink: 0, color: 'rgb(251,191,36)' }} />
             <p className="budget-banner-text">
-              Control which Tier 2 teams can view their own budget bar and submit budget requests. Each team is managed independently.
+              Control which Tier 2 teams can see the <strong>total ISTE budget</strong>. Each team is toggled independently.
             </p>
           </div>
 
-          {/* Tier 2 groups */}
-          {(() => {
-            const tier2execoms = execoms.filter((e: any) => TIER2_TEAM_NAMES.includes(e.name));
-            const otherExecoms = execoms.filter((e: any) => !TIER2_TEAM_NAMES.includes(e.name));
-            return (
-              <>
-                <p className="budget-group-label">Tier 2 — Core Groups</p>
-                {tier2execoms.map((execomItem: any) => {
-                  const canView = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.viewBudget && p.allowed);
-                  const canRequest = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.requestBudget && p.allowed);
-                  return (
-                    <GlassCard key={execomItem.id} className="budget-team-card" padding="16px" style={{ marginBottom: '12px' }}>
-                      <div className="budget-team-header">
-                        <div className="budget-team-avatar">
-                          {execomItem.name[0]}
-                        </div>
-                        <div>
-                          <h3 className="budget-team-name">{execomItem.name}</h3>
-                          <span className="budget-team-sub">Tier 2 · Core Group</span>
-                        </div>
-                        <div className={`budget-status-badge ${canView ? 'badge-active' : 'badge-off'}`}>
-                          {canView ? 'Budget On' : 'Budget Off'}
-                        </div>
-                      </div>
+          <p className="budget-group-label">Tier 2 — Core Groups</p>
+          {execoms
+            .filter((e: any) => TIER2_TEAM_NAMES.includes(e.name))
+            .map((execomItem: any) => {
+              const canSeeTotal = allPermissions.some(
+                p => p.execom_id === execomItem.id && p.feature === ExecomFeature.viewTotalBudget && p.allowed
+              );
+              return (
+                <GlassCard key={execomItem.id} className="budget-team-card" padding="16px" style={{ marginBottom: '12px' }}>
+                  <div className="budget-team-header">
+                    <div className="budget-team-avatar">{execomItem.name[0]}</div>
+                    <div style={{ flex: 1 }}>
+                      <h3 className="budget-team-name">{execomItem.name}</h3>
+                      <span className="budget-team-sub">Tier 2 · Core Group</span>
+                    </div>
+                    <div className={`budget-status-badge ${canSeeTotal ? 'badge-active' : 'badge-off'}`}>
+                      {canSeeTotal ? '✓ Can View' : '✗ Hidden'}
+                    </div>
+                  </div>
 
-                      <div className="divider-line" style={{ margin: '12px 0' }}></div>
+                  <div className="divider-line" style={{ margin: '12px 0' }}></div>
 
-                      <div className="toggles-list">
-                        <div className="toggle-row flex-row-between">
-                          <div>
-                            <span className="toggle-label">View Budget Bar</span>
-                            <span className="toggle-desc">Team members can see the allocated budget</span>
-                          </div>
-                          <label className="switch">
-                            <input
-                              type="checkbox"
-                              checked={canView}
-                              onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.viewBudget, canView)}
-                            />
-                            <span className="slider round"></span>
-                          </label>
-                        </div>
-
-                        <div className="toggle-row flex-row-between">
-                          <div>
-                            <span className="toggle-label">Request Budget</span>
-                            <span className="toggle-desc">Team can submit budget request forms</span>
-                          </div>
-                          <label className="switch">
-                            <input
-                              type="checkbox"
-                              checked={canRequest}
-                              onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.requestBudget, canRequest)}
-                            />
-                            <span className="slider round"></span>
-                          </label>
-                        </div>
-                      </div>
-                    </GlassCard>
-                  );
-                })}
-
-                {otherExecoms.length > 0 && (
-                  <>
-                    <p className="budget-group-label" style={{ marginTop: '20px' }}>Other Teams / Forums</p>
-                    {otherExecoms.map((execomItem: any) => {
-                      const canView = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.viewBudget && p.allowed);
-                      const canRequest = allPermissions.some(p => p.execom_id === execomItem.id && p.feature === ExecomFeature.requestBudget && p.allowed);
-                      return (
-                        <GlassCard key={execomItem.id} className="budget-team-card other-team-card" padding="14px" style={{ marginBottom: '10px' }}>
-                          <div className="budget-team-header">
-                            <div className="budget-team-avatar other-avatar">
-                              {execomItem.name[0]}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <h3 className="budget-team-name" style={{ fontSize: '14px' }}>{execomItem.name}</h3>
-                            </div>
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                              <span className="toggle-label" style={{ fontSize: '11.5px' }}>View</span>
-                              <label className="switch">
-                                <input
-                                  type="checkbox"
-                                  checked={canView}
-                                  onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.viewBudget, canView)}
-                                />
-                                <span className="slider round"></span>
-                              </label>
-                              <span className="toggle-label" style={{ fontSize: '11.5px' }}>Request</span>
-                              <label className="switch">
-                                <input
-                                  type="checkbox"
-                                  checked={canRequest}
-                                  onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.requestBudget, canRequest)}
-                                />
-                                <span className="slider round"></span>
-                              </label>
-                            </div>
-                          </div>
-                        </GlassCard>
-                      );
-                    })}
-                  </>
-                )}
-              </>
-            );
-          })()}
+                  <div className="toggle-row flex-row-between">
+                    <div>
+                      <span className="toggle-label">View Total ISTE Budget</span>
+                      <span className="toggle-desc">Members of this team can see the overall organization budget</span>
+                    </div>
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={canSeeTotal}
+                        onChange={() => handleTogglePermission(execomItem.id, ExecomFeature.viewTotalBudget, canSeeTotal)}
+                      />
+                      <span className="slider round"></span>
+                    </label>
+                  </div>
+                </GlassCard>
+              );
+            })
+          }
         </div>
       ) : (
         // Tab 3: Core Settings and Global Toggles
@@ -585,32 +527,35 @@ export const PermissionManagerScreen: React.FC = () => {
           padding: 4px;
           border-radius: 12px;
           margin-top: 10px;
-          display: flex;
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 4px;
         }
 
         .perm-tab-btn {
-          flex: 1;
-          padding: 10px;
+          padding: 8px 4px;
           border: none;
           background: transparent;
           border-radius: 8px;
-          font-family: var(--font-space-grotesk);
-          font-weight: 700;
-          font-size: 13px;
+          font-family: var(--font-inter);
+          font-weight: 600;
+          font-size: 11.5px;
           color: var(--text-muted);
           cursor: pointer;
           transition: all 0.2s ease;
           display: flex;
           align-items: center;
           justify-content: center;
+          gap: 4px;
+          white-space: nowrap;
         }
 
-        .perm-tab-btn.active {
+        .perm-tab-btn.active-default {
           background: rgba(22, 192, 122, 0.15);
           color: rgb(22, 192, 122);
         }
 
-        .perm-tab-btn.budget-tab-active {
+        .perm-tab-btn.active-budget {
           background: rgba(251, 191, 36, 0.15);
           color: rgb(251, 191, 36);
         }
