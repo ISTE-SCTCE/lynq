@@ -162,6 +162,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const stale = readCache(user.id);
         if (stale) applyUserState(stale.user, stale.memberships, stale.permissionsMap);
         else { setCurrentUser(null); setPermissions(null); }
+      } else {
+        throw e;
       }
     } finally {
       setIsLoading(false);
