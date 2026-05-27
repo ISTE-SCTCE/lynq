@@ -80,6 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [permissions, setPermissions] = useState<PermissionEngine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isShowingSplash, setIsShowingSplash] = useState(true);
+  const loadingUserIdRef = React.useRef<string | null>(null);
+  const currentUserIdRef = React.useRef<string | null>(null);
 
   const hideSplash = useCallback(() => setIsShowingSplash(false), []);
 
@@ -90,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     permissionsMap: Record<number, ExecomPermissionModel[]>
   ) => {
     setCurrentUser(parsedUser);
+    currentUserIdRef.current = parsedUser.id;
     setExecomMemberships(memberships);
     setExecomPermissions(permissionsMap);
     setPermissions(new PermissionEngine(parsedUser, memberships, permissionsMap));
@@ -102,8 +105,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setExecomPermissions({});
       setPermissions(null);
       setIsLoading(false);
+      loadingUserIdRef.current = null;
       return;
     }
+
+    loadingUserIdRef.current = user.id;
 
     // ── Step 1: Serve from cache instantly (while fetching fresh in background)
     if (!skipCache) {
@@ -158,6 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } finally {
       setIsLoading(false);
+      loadingUserIdRef.current = null;
     }
   }, [applyUserState]);
 
@@ -189,11 +196,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const newUser = session?.user ?? null;
       if (newUser) {
+        if (currentUserIdRef.current === newUser.id || loadingUserIdRef.current === newUser.id) {
+          setAuthUser(newUser);
+          return;
+        }
         setAuthUser(newUser);
         await loadUserData(newUser);
       } else {
         setAuthUser(null);
         setCurrentUser(null);
+        currentUserIdRef.current = null;
         setPermissions(null);
         setIsLoading(false);
       }
@@ -216,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setAuthUser(null);
     setCurrentUser(null);
+    currentUserIdRef.current = null;
     setExecomMemberships([]);
     setExecomPermissions({});
     setPermissions(null);
