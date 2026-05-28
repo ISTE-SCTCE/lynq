@@ -99,13 +99,12 @@ class AuthProvider extends ChangeNotifier {
       final folderIds = _folderMemberships.map((m) => m.folderId).toList();
       var permQuery = _supabase.from('folder_permissions').select();
       
-      if (_currentUser!.role == 'chairman' || _currentUser!.role == 'vice_chairman' || _currentUser!.role == 'core_execcom') {
-        // Core members might need to see all forum permissions for management
-        // but for app logic, let's at least include 0 and their memberships.
-        // Actually, if they are Core, they should probably have access to all permission toggles.
+      if (folderIds.isNotEmpty) {
+        // Include global (0) + folder-specific permissions
         permQuery = permQuery.or('folder_id.eq.0,folder_id.in.(${folderIds.join(",")})');
       } else {
-        permQuery = permQuery.or('folder_id.eq.0,folder_id.in.(${folderIds.join(",")})');
+        // No folder memberships: only fetch global permissions
+        permQuery = permQuery.eq('folder_id', 0);
       }
       
       final permData = await permQuery.timeout(const Duration(seconds: 15));
@@ -164,5 +163,12 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> signOut() async {
     await _supabase.auth.signOut();
+    _authUser = null;
+    _currentUser = null;
+    _folderMemberships = [];
+    _folderPermissions = {};
+    _permissionEngine = null;
+    _isLoading = false;
+    notifyListeners();
   }
 }

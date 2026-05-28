@@ -79,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [folderPermissions, setFolderPermissions] = useState<Record<number, FolderPermissionModel[]>>({});
   const [permissions, setPermissions] = useState<PermissionEngine | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isShowingSplash, setIsShowingSplash] = useState(true);
+  const [isShowingSplash, setIsShowingSplash] = useState(false);
 
   const hideSplash = useCallback(() => setIsShowingSplash(false), []);
 
@@ -166,6 +166,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [authUser, loadUserData]);
 
   useEffect(() => {
+    let initialLoadDone = false;
+
     const initSession = async () => {
       try {
         const { data: sessionData } = await getSessionWithTimeout(3000);
@@ -181,19 +183,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Session initialization failed:', err);
         setAuthUser(null);
         setIsLoading(false);
+      } finally {
+        initialLoadDone = true;
       }
     };
 
     initSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    // Only react to meaningful auth events — NOT TOKEN_REFRESHED or INITIAL_SESSION
+    // which would cause a double loadUserData race condition.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Skip events handled by initSession or that don't require a profile reload
+      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return;
+
       const newUser = session?.user ?? null;
       if (newUser) {
+        // For SIGNED_IN events from the listener (e.g. OAuth / magic link), only
+        // reload if the initial load has already completed to avoid races.
+        if (!initialLoadDone) return;
         setAuthUser(newUser);
-        await loadUserData(newUser);
+        await loadUserData(newUser, true);
       } else {
         setAuthUser(null);
         setCurrentUser(null);
+        setFolderMemberships([]);
+        setFolderPermissions({});
         setPermissions(null);
         setIsLoading(false);
       }
@@ -208,6 +222,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) { setIsLoading(false); throw error; }
     setAuthUser(data.user);
     await loadUserData(data.user, true); // fresh load on sign-in — no stale cache
+    // Ensure splash is dismissed after a successful manual sign-in
+    setIsShowingSplash(false);
   };
 
   const signOut = async () => {
