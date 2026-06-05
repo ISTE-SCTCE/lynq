@@ -1,0 +1,9 @@
+{
+  "appName": "Lynq",
+  "organization": "ISTE SCTCE",
+  "tagline": "Connect and Manage organizing teams",
+  "theme": {
+    "primary": "#141414",
+    "accent": "#E50914"
+  }
+}
