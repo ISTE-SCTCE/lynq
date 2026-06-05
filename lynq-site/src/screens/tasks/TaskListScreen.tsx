@@ -129,7 +129,7 @@ export const TaskListScreen: React.FC = () => {
       </header>
 
       {/* Header Stat Badges Row */}
-      <div className="stats-badges-row flex-center" style={{ gap: '10px', marginBottom: '20px' }}>
+      <div className="stats-badges-row flex-center" style={{ gap: '10px', marginBottom: '16px' }}>
         <div className="stat-badge flex-center pending">
           <span className="stat-badge-num">{pendingCount}</span>
           <span className="stat-badge-lbl">Pending</span>
@@ -143,6 +143,24 @@ export const TaskListScreen: React.FC = () => {
           <span className="stat-badge-lbl">Review</span>
         </div>
       </div>
+
+      {/* Overall Progress Bar */}
+      {tasks.length > 0 && (
+        <div className="overall-progress-section" style={{ marginBottom: '24px' }}>
+          <div className="flex-center" style={{ justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Overall Progress</span>
+            <span style={{ fontSize: '14px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)', color: 'var(--accent-teal)' }}>
+              {((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="progress-bar-container" style={{ height: '8px' }}>
+            <div 
+              className="progress-bar-fill" 
+              style={{ width: `${(tasks.filter(t => t.status === 'completed').length / tasks.length) * 100}%`, backgroundColor: 'var(--accent-teal)' }}
+            ></div>
+          </div>
+        </div>
+      )}
 
       {/* Filter Tabs Header */}
       <div className="tasks-tabs-row">

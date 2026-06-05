@@ -14,12 +14,14 @@ import { FolderPermissionsScreen } from '../screens/folders/FolderPermissionsScr
 import { MemberListScreen } from '../screens/members/MemberListScreen';
 import { MemberDetailScreen } from '../screens/members/MemberDetailScreen';
 import { AddMemberScreen } from '../screens/members/AddMemberScreen';
+import { ExecomListScreen } from '../screens/members/ExecomListScreen';
 import { EventListScreen } from '../screens/events/EventListScreen';
 import { EventFormScreen } from '../screens/events/EventFormScreen';
 import { BudgetOverviewScreen } from '../screens/budget/BudgetOverviewScreen';
 import { BudgetRequestScreen } from '../screens/budget/BudgetRequestScreen';
 import { ReportListScreen } from '../screens/reports/ReportListScreen';
 import { ReportUploadScreen } from '../screens/reports/ReportUploadScreen';
+import MentronDashboardScreen from '../screens/mentron/MentronDashboardScreen';
 import { AnnouncementScreen } from '../screens/announcements/AnnouncementScreen';
 import { ChatListScreen } from '../screens/chat/ChatListScreen';
 import { ChatScreen } from '../screens/chat/ChatScreen';
@@ -108,9 +110,8 @@ export const AppRouter: React.FC = () => {
           <Route element={<PermissionGuard check={(_, role) => role >= AppRole.forumExeccom} />}>
             <Route path="/members" element={<MemberListScreen />} />
             <Route path="/members/:id" element={<MemberDetailScreen />} />
-          </Route>
-          <Route element={<PermissionGuard check={(_, role) => role >= AppRole.forumExeccom} />}>
             <Route path="/members-enroll" element={<AddMemberScreen />} />
+            <Route path="/execom_list" element={<ExecomListScreen />} />
           </Route>
 
           {/* Events */}
@@ -158,6 +159,8 @@ export const AppRouter: React.FC = () => {
           <Route element={<PermissionGuard check={(_, role) => role >= AppRole.viceChairman} />}>
             <Route path="/registrations" element={<RegistrationQueueScreen />} />
           </Route>
+          {/* Mentron Analytics */}
+          <Route path="/mentron" element={<MentronDashboardScreen />} />
         </Route>
 
         {/* Fallback */}

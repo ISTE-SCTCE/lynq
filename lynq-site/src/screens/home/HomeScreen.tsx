@@ -14,7 +14,8 @@ import {
   QrCode, 
   UserCheck, 
   ChevronRight, 
-  BookOpen
+  BookOpen,
+  BarChart2
 } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
@@ -29,7 +30,7 @@ export const HomeScreen: React.FC = () => {
   const [isUpcomingLoading, setIsUpcomingLoading] = useState(true);
   const [activeForums, setActiveForums] = useState<any[]>([]);
   const [isForumsLoading, setIsForumsLoading] = useState(true);
-  const [stats, setStats] = useState({ members: 73, events: 1, forums: 5 });
+  const [stats, setStats] = useState({ members: 73, execom: 0, events: 1, forums: 5 });
 
   useEffect(() => {
     if (!currentUser || !permissions) return;
@@ -61,13 +62,18 @@ export const HomeScreen: React.FC = () => {
 
         // 3. Fetch exact counts from database dynamically to align with mobile app & backend
         try {
-          const [membersRes, eventsRes, foldersRes] = await Promise.all([
+          const [membersRes, execomRes, eventsRes, foldersRes] = await Promise.all([
             supabase.from('members').select('id', { count: 'exact', head: true }).not('iste_id', 'is', null).neq('iste_id', ''),
+            supabase.from('folder_members').select('user_id'),
             supabase.from('events').select('id', { count: 'exact', head: true }),
             supabase.from('folders').select('id', { count: 'exact', head: true })
           ]);
+          
+          const uniqueExecomUsers = new Set((execomRes.data || []).map((m: any) => m.user_id)).size;
+
           setStats({
             members: membersRes.count ?? 73,
+            execom: uniqueExecomUsers,
             events: eventsRes.count ?? 1,
             forums: foldersRes.count ?? 5
           });
@@ -154,6 +160,7 @@ export const HomeScreen: React.FC = () => {
 
   quickActions.push({ icon: CheckSquare, label: 'Tasks', route: '/tasks', color: '#d97d55' });
   quickActions.push({ icon: QrCode, label: 'Scanner', route: '/scan', color: '#6fa4af' });
+  quickActions.push({ icon: BarChart2, label: 'Mentron', route: '/mentron', color: '#8B5CF6' });
 
   if (permissions.isAtLeastTier1) {
     quickActions.push({ icon: UserCheck, label: 'Registrations', route: '/registrations', color: '#b8c4a9' });
@@ -190,23 +197,31 @@ export const HomeScreen: React.FC = () => {
           <section className="section-block">
             <h3 className="section-title">NETWORK OVERVIEW</h3>
             <div className="overview-stats-row">
-              <GlassCard className="stat-card" padding="16px">
+              <GlassCard className="stat-card" padding="16px" onClick={() => navigate('/members')}>
                 <div className="stat-icon-wrapper">
                   <Users size={18} />
                 </div>
                 <div className="stat-value">{stats.members}</div>
                 <div className="stat-label">MEMBERS</div>
               </GlassCard>
+
+              <GlassCard className="stat-card" padding="16px" onClick={() => navigate('/execom_list')}>
+                <div className="stat-icon-wrapper">
+                  <ShieldAlert size={18} />
+                </div>
+                <div className="stat-value">{stats.execom}</div>
+                <div className="stat-label">EXECOM</div>
+              </GlassCard>
               
-              <GlassCard className="stat-card" padding="16px">
+              <GlassCard className="stat-card" padding="16px" onClick={() => navigate('/events')}>
                 <div className="stat-icon-wrapper">
                   <Calendar size={18} />
                 </div>
                 <div className="stat-value">{stats.events}</div>
-                <div className="stat-label">EVENT</div>
+                <div className="stat-label">EVENTS</div>
               </GlassCard>
 
-              <GlassCard className="stat-card" padding="16px">
+              <GlassCard className="stat-card" padding="16px" onClick={() => navigate('/folders')}>
                 <div className="stat-icon-wrapper">
                   <FolderOpen size={18} />
                 </div>

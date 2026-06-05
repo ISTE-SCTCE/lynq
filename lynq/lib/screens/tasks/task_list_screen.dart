@@ -126,7 +126,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       body: NestedScrollView(
         headerSliverBuilder: (ctx, inner) => [
           SliverAppBar(
-            expandedHeight: 160,
+            expandedHeight: 210,
             pinned: true,
             backgroundColor: theme.scaffoldBackgroundColor,
             title: Text(
@@ -186,8 +186,41 @@ class _TaskListScreenState extends State<TaskListScreen>
               Expanded(child: _buildStatBadge('Review', awaiting.toString(), TaskStatus.awaitingVerification.color)),
             ],
           ),
+          const SizedBox(height: 16),
+          _buildOverallProgressBar(theme),
         ],
       ),
+    );
+  }
+
+  Widget _buildOverallProgressBar(ThemeData theme) {
+    if (_allTasks.isEmpty) return const SizedBox.shrink();
+    
+    final completed = _allTasks.where((t) => t.status == TaskStatus.completed).length;
+    final progress = completed / _allTasks.length;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Overall Progress', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onBackground.withValues(alpha: 0.7))),
+            Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(fontSize: 14, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearPercentIndicator(
+          lineHeight: 8,
+          percent: progress,
+          backgroundColor: theme.dividerColor.withValues(alpha: 0.2),
+          progressColor: theme.colorScheme.primary,
+          barRadius: const Radius.circular(4),
+          padding: EdgeInsets.zero,
+          animation: true,
+          animationDuration: 1000,
+        ),
+      ],
     );
   }
 
