@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _pendingTasks = [];
   int _selectedIndex = 0;
   int _membersCount = 0;
+  int _execomCount = 0;
   int _eventsCount = 0;
   int _foldersCount = 0;
 
@@ -227,10 +228,11 @@ class _HomeScreenState extends State<HomeScreen> {
             .contains('assigned_to', [user.id])
             .order('deadline', ascending: true)
             .limit(3),
-        // Use count() to avoid downloading all rows just for .length
-        client.from('members').select('id').not('iste_id', 'is', null).neq('iste_id', '').limit(1000),
-        client.from('events').select('id').limit(1000),
-        client.from('folders').select('id').limit(1000),
+        // Fetch all matching IDs for exact length
+        client.from('members').select('id').not('iste_id', 'is', null).neq('iste_id', ''),
+        client.from('folder_members').select('user_id'),
+        client.from('events').select('id'),
+        client.from('folders').select('id'),
         if (perms?.canManageBudget ?? false)
           client.from('budget_categories').select().order('name')
         else
@@ -242,10 +244,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _upcomingEvents = (results[0] as List).cast<Map<String, dynamic>>();
         _pendingTasks   = (results[1] as List).cast<Map<String, dynamic>>();
         _membersCount   = (results[2] as List).length;
-        _eventsCount    = (results[3] as List).length;
-        _foldersCount   = (results[4] as List).length;
+        _execomCount    = (results[3] as List).map((e) => e['user_id']).toSet().length;
+        _eventsCount    = (results[4] as List).length;
+        _foldersCount   = (results[5] as List).length;
         if (perms?.canManageBudget ?? false) {
-          _allCategories = (results[5] as List)
+          _allCategories = (results[6] as List)
               .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
         }
@@ -834,6 +837,15 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
+    actions.add(
+      _ActionItem(
+        Icons.analytics_rounded,
+        'Mentron',
+        () => context.push('/mentron'),
+        const Color(0xFF6B4A8B),
+      ),
+    );
+
     if (perms.canManagePermissions) {
       actions.add(
         _ActionItem(
@@ -958,20 +970,25 @@ class _HomeScreenState extends State<HomeScreen> {
     return Row(
       children: [
         Expanded(
-          child: _statCard(context, 'Members', '$_membersCount', Icons.people_outline),
+          child: _statCard(context, 'Members', '$_membersCount', Icons.people_outline, onTap: () => context.push('/members')),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _statCard(context, 'Execom', '$_execomCount', Icons.admin_panel_settings_outlined, onTap: () => context.push('/execom_list')),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _statCard(
             context,
-            'Event',
+            'Events',
             '$_eventsCount',
             Icons.event_available_outlined,
+            onTap: () => context.push('/events')
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: _statCard(context, 'Teams', '$_foldersCount', Icons.group_work_outlined),
+          child: _statCard(context, 'Teams', '$_foldersCount', Icons.group_work_outlined, onTap: () => context.push('/folders')),
         ),
       ],
     );
@@ -981,56 +998,60 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context,
     String label,
     String value,
-    IconData icon,
-  ) {
+    IconData icon, {
+    VoidCallback? onTap,
+  }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-      borderRadius: 18,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: (isDark ? AppTheme.secondary : AppTheme.darkGreen)
-                  .withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Icon(
-                icon,
-                size: 18,
-                color: isDark ? AppTheme.secondary : AppTheme.darkGreen,
+    return GestureDetector(
+      onTap: onTap,
+      child: GlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        borderRadius: 18,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (isDark ? AppTheme.secondary : AppTheme.darkGreen)
+                    .withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: isDark ? AppTheme.secondary : AppTheme.darkGreen,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.8,
-              height: 1,
-              color: isDark ? Colors.white : AppTheme.darkGreen,
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.8,
+                height: 1,
+                color: isDark ? Colors.white : AppTheme.darkGreen,
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label.toUpperCase(),
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
-              fontSize: 7.5,
-              color: Colors.grey[500],
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1.0,
+            const SizedBox(height: 3),
+            Text(
+              label.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 7.5,
+                color: Colors.grey[500],
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.0,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

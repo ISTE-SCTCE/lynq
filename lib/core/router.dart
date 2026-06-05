@@ -15,6 +15,7 @@ import '../screens/folders/add_folder_member_screen.dart';
 import '../screens/members/member_list_screen.dart';
 import '../screens/members/member_detail_screen.dart';
 import '../screens/members/add_member_screen.dart';
+import '../screens/members/execom_list_screen.dart';
 import '../screens/events/event_list_screen.dart';
 import '../screens/events/event_form_screen.dart';
 import '../screens/budget/budget_overview_screen.dart';
@@ -35,6 +36,7 @@ import '../screens/tasks/subtask_detail_screen.dart';
 import '../screens/attendance/qr_scanner_screen.dart';
 import '../screens/registrations/registration_queue_screen.dart';
 import '../screens/registrations/registration_summary_screen.dart';
+import '../screens/mentron/mentron_dashboard_screen.dart';
 import '../models/task_models.dart';
 
 class AppRouter {
@@ -141,6 +143,10 @@ class AppRouter {
       GoRoute(
         path: '/members-enroll',
         pageBuilder: (context, state) => _page(state: state, child: const AddMemberScreen()),
+      ),
+      GoRoute(
+        path: '/execom_list',
+        pageBuilder: (context, state) => _page(state: state, child: const ExecomListScreen()),
       ),
 
       // Events
@@ -281,6 +287,10 @@ class AppRouter {
             ),
           );
         },
+      ),
+      GoRoute(
+        path: '/mentron',
+        pageBuilder: (_, state) => _page(state: state, child: const MentronDashboardScreen()),
       ),
     ],
   );
