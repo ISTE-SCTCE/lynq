@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
+import { motion, useSpring, useTransform } from 'framer-motion';
 import PageTransition from '../../shared/components/PageTransition';
 
 // Initialize a separate client for Mentron DB
@@ -8,6 +9,18 @@ const mentronClient = createClient(
   'https://ysllolnoyezfdllqocgv.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGxvbG5veWV6ZmRsbHFvY2d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MjA0NTcsImV4cCI6MjA4NzA5NjQ1N30.0bQMBFKaQuXEQ3sh1_gfQWgWkcd70SDfy_zMwIQ8myk'
 );
+
+// Micro-animation component for numbers
+const RollingNumber: React.FC<{ value: number }> = ({ value }) => {
+  const spring = useSpring(value, { mass: 0.8, stiffness: 75, damping: 15 });
+  const display = useTransform(spring, (current) => Math.round(current).toString());
+
+  useEffect(() => {
+    spring.set(value);
+  }, [value, spring]);
+
+  return <motion.span>{display}</motion.span>;
+};
 
 const MentronDashboardScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -19,11 +32,24 @@ const MentronDashboardScreen: React.FC = () => {
 
   useEffect(() => {
     fetchMentronMetrics();
+
+    // Subscribe to realtime updates for Mentron platform
+    const channel = mentronClient
+      .channel('mentron_public_profiles')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+        // Trigger a fresh fetch when anything changes to keep it perfectly synced
+        fetchMentronMetrics(false);
+      })
+      .subscribe();
+
+    return () => {
+      mentronClient.removeChannel(channel);
+    };
   }, []);
 
-  const fetchMentronMetrics = async () => {
+  const fetchMentronMetrics = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       
       // Profiles
       const { data: profilesData } = await mentronClient.from('profiles').select('id, role');
@@ -59,7 +85,7 @@ const MentronDashboardScreen: React.FC = () => {
     } catch (error) {
       console.error('Error fetching Mentron metrics:', error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -89,7 +115,7 @@ const MentronDashboardScreen: React.FC = () => {
           <div className="mentron-content" style={{ padding: '24px 20px', gap: '16px', display: 'flex', flexDirection: 'column' }}>
             <MetricCard 
               title="Registered Students" 
-              value={registeredStudents.toString()} 
+              value={registeredStudents} 
               color="#3B82F6" 
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -101,7 +127,7 @@ const MentronDashboardScreen: React.FC = () => {
             
             <MetricCard 
               title="Active Administrators" 
-              value={activeAdmins.toString()} 
+              value={activeAdmins} 
               color="#F59E0B" 
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -112,7 +138,7 @@ const MentronDashboardScreen: React.FC = () => {
 
             <MetricCard 
               title="Total Student Notes" 
-              value={totalNotes.toString()} 
+              value={totalNotes} 
               color="#10B981" 
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -123,7 +149,7 @@ const MentronDashboardScreen: React.FC = () => {
 
             <MetricCard 
               title="Total Note Views" 
-              value={totalViews.toString()} 
+              value={totalViews} 
               color="#8B5CF6" 
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -138,7 +164,7 @@ const MentronDashboardScreen: React.FC = () => {
   );
 };
 
-const MetricCard: React.FC<{title: string, value: string, icon: React.ReactNode, color: string}> = ({ title, value, icon, color }) => {
+const MetricCard: React.FC<{title: string, value: number, icon: React.ReactNode, color: string}> = ({ title, value, icon, color }) => {
   return (
     <div className="glass-card" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '20px' }}>
       <div style={{
@@ -152,7 +178,9 @@ const MetricCard: React.FC<{title: string, value: string, icon: React.ReactNode,
       </div>
       <div className="flex-col">
         <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text-muted)' }}>{title}</span>
-        <span style={{ fontSize: '32px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)', color: 'var(--text-primary)' }}>{value}</span>
+        <span style={{ fontSize: '32px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)', color: 'var(--text-primary)' }}>
+          <RollingNumber value={value} />
+        </span>
       </div>
     </div>
   );

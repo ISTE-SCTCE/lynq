@@ -169,6 +169,9 @@ class _TaskListScreenState extends State<TaskListScreen>
     final pending = _allTasks.where((t) => t.status == TaskStatus.pending).length;
     final inProgress = _allTasks.where((t) => t.status == TaskStatus.inProgress).length;
     final awaiting = _allTasks.where((t) => t.status == TaskStatus.awaitingVerification).length;
+    
+    final completed = _allTasks.where((t) => t.status == TaskStatus.completed).length;
+    final progress = _allTasks.isEmpty ? 0.0 : (completed / _allTasks.length);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 80, 20, 0),
@@ -176,66 +179,102 @@ class _TaskListScreenState extends State<TaskListScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(child: _buildStatBadge('Pending', pending.toString(), TaskStatus.pending.color)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildStatBadge('Active', inProgress.toString(), TaskStatus.inProgress.color)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildStatBadge('Review', awaiting.toString(), TaskStatus.awaitingVerification.color)),
-            ],
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.cardTheme.color,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: theme.dividerColor.withValues(alpha: 0.1)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Platform Progress', style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.bold, color: theme.colorScheme.onBackground)),
+                          const SizedBox(height: 8),
+                          Text('Keep track of your team\'s ongoing tasks and overall execution.', style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onBackground.withValues(alpha: 0.6))),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    CircularPercentIndicator(
+                      radius: 50.0,
+                      lineWidth: 10.0,
+                      animation: true,
+                      animationDuration: 1500,
+                      percent: progress,
+                      circularStrokeCap: CircularStrokeCap.round,
+                      backgroundColor: theme.dividerColor.withValues(alpha: 0.2),
+                      progressColor: theme.colorScheme.primary,
+                      center: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(begin: 0, end: progress * 100),
+                        duration: const Duration(milliseconds: 1500),
+                        curve: Curves.easeOutQuint,
+                        builder: (context, val, child) {
+                          return Text(
+                            '${val.toInt()}%',
+                            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 20, color: theme.colorScheme.onBackground),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(child: _buildStatBadge('Pending', pending, TaskStatus.pending.color)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildStatBadge('Active', inProgress, TaskStatus.inProgress.color)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildStatBadge('Review', awaiting, TaskStatus.awaitingVerification.color)),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          _buildOverallProgressBar(theme),
         ],
       ),
     );
   }
 
-  Widget _buildOverallProgressBar(ThemeData theme) {
-    if (_allTasks.isEmpty) return const SizedBox.shrink();
-    
-    final completed = _allTasks.where((t) => t.status == TaskStatus.completed).length;
-    final progress = completed / _allTasks.length;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Overall Progress', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: theme.colorScheme.onBackground.withValues(alpha: 0.7))),
-            Text('${(progress * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(fontSize: 14, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        LinearPercentIndicator(
-          lineHeight: 8,
-          percent: progress,
-          backgroundColor: theme.dividerColor.withValues(alpha: 0.2),
-          progressColor: theme.colorScheme.primary,
-          barRadius: const Radius.circular(4),
-          padding: EdgeInsets.zero,
-          animation: true,
-          animationDuration: 1000,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatBadge(String label, String count, Color color) {
+  Widget _buildStatBadge(String label, int count, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         border: Border.all(color: color.withValues(alpha: 0.2)),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(count, style: GoogleFonts.spaceGrotesk(color: color, fontWeight: FontWeight.bold, fontSize: 18)),
-          Text(label, style: GoogleFonts.inter(color: color.withValues(alpha: 0.8), fontSize: 11)),
+          TweenAnimationBuilder<int>(
+            tween: IntTween(begin: 0, end: count),
+            duration: const Duration(milliseconds: 1500),
+            curve: Curves.easeOutQuint,
+            builder: (context, val, child) {
+              return Text(
+                val.toString(),
+                style: GoogleFonts.spaceGrotesk(color: color, fontWeight: FontWeight.bold, fontSize: 28),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(label, style: GoogleFonts.inter(color: color.withValues(alpha: 0.8), fontSize: 12, fontWeight: FontWeight.w600)),
         ],
       ),
     );

@@ -21,6 +21,8 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
 
   late final SupabaseClient _mentronClient;
 
+  RealtimeChannel? _mentronChannel;
+
   @override
   void initState() {
     super.initState();
@@ -34,10 +36,35 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzbGxvbG5veWV6ZmRsbHFvY2d2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE1MjA0NTcsImV4cCI6MjA4NzA5NjQ1N30.0bQMBFKaQuXEQ3sh1_gfQWgWkcd70SDfy_zMwIQ8myk',
     );
     _fetchMentronMetrics();
+
+    // Subscribe to realtime updates for Mentron platform
+    _mentronChannel = _mentronClient
+        .channel('mentron_public_profiles')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'profiles',
+          callback: (payload) {
+            _fetchMentronMetrics(showLoading: false);
+          },
+        )
+        .subscribe();
   }
 
-  Future<void> _fetchMentronMetrics() async {
+  @override
+  void dispose() {
+    _mentronChannel?.unsubscribe();
+    _mentronClient.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchMentronMetrics({bool showLoading = true}) async {
     try {
+      if (showLoading && mounted) {
+        setState(() {
+          _isLoading = true;
+        });
+      }
       // Students (assuming role is not 'exec' or 'core', or we can count all distinct profiles)
       // For simplicity, count all profiles
       final profilesResp = await _mentronClient.from('profiles').select('id, role');
@@ -77,7 +104,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
       }
     } catch (e) {
       debugPrint('Error fetching Mentron metrics: $e');
-      if (mounted) {
+      if (mounted && showLoading) {
         setState(() {
           _isLoading = false;
         });
@@ -104,7 +131,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _fetchMentronMetrics,
+              onRefresh: () => _fetchMentronMetrics(showLoading: true),
               child: ListView(
                 padding: const EdgeInsets.all(24.0),
                 children: [
@@ -126,7 +153,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
                   const SizedBox(height: 32),
                   _buildMetricCard(
                     title: 'Registered Students',
-                    value: _registeredStudents.toString(),
+                    value: _registeredStudents,
                     icon: Icons.school_rounded,
                     color: Colors.blueAccent,
                     isDark: isDark,
@@ -134,7 +161,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
                   const SizedBox(height: 16),
                   _buildMetricCard(
                     title: 'Active Administrators',
-                    value: _activeAdmins.toString(),
+                    value: _activeAdmins,
                     icon: Icons.admin_panel_settings_rounded,
                     color: Colors.orangeAccent,
                     isDark: isDark,
@@ -142,7 +169,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
                   const SizedBox(height: 16),
                   _buildMetricCard(
                     title: 'Total Student Notes',
-                    value: _totalNotes.toString(),
+                    value: _totalNotes,
                     icon: Icons.library_books_rounded,
                     color: Colors.greenAccent,
                     isDark: isDark,
@@ -150,7 +177,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
                   const SizedBox(height: 16),
                   _buildMetricCard(
                     title: 'Total Note Views',
-                    value: _totalViews.toString(),
+                    value: _totalViews,
                     icon: Icons.remove_red_eye_rounded,
                     color: Colors.purpleAccent,
                     isDark: isDark,
@@ -163,7 +190,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
 
   Widget _buildMetricCard({
     required String title,
-    required String value,
+    required int value,
     required IconData icon,
     required Color color,
     required bool isDark,
@@ -195,13 +222,20 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w800,
-                      color: isDark ? Colors.white : Colors.black87,
-                    ),
+                  TweenAnimationBuilder<int>(
+                    tween: IntTween(begin: 0, end: value),
+                    duration: const Duration(milliseconds: 1500),
+                    curve: Curves.easeOutQuint,
+                    builder: (context, currentVal, child) {
+                      return Text(
+                        currentVal.toString(),
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

@@ -46,27 +46,32 @@ class LiquidGlassNavBar extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(35),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF141414)
-                    : Colors.white,
-                borderRadius: BorderRadius.circular(35),
-                border: isDark ? Border.all(
-                  color: Colors.white.withValues(alpha: 0.1),
-                  width: 1.0,
-                ) : null,
-                boxShadow: isDark ? [] : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF141414).withValues(alpha: 0.65)
+                      : Colors.white.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(35),
+                  border: isDark ? Border.all(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    width: 1.0,
+                  ) : Border.all(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    width: 1.5,
                   ),
-                ],
-              ),
-              child: Stack(
-                children: [
+                  boxShadow: isDark ? [] : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 15,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
                     _LiquidSelector(
                       selectedIndex: safeSelectedIndex,
                       itemsCount: items.length,

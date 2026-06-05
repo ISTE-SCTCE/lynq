@@ -7,6 +7,62 @@ import { TaskModel } from '../../models/types';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
 
+import { motion, useSpring, useTransform } from 'framer-motion';
+
+const RollingNumber: React.FC<{ value: number }> = ({ value }) => {
+  const spring = useSpring(value, { mass: 0.8, stiffness: 75, damping: 15 });
+  const display = useTransform(spring, (current) => Math.round(current).toString());
+
+  useEffect(() => {
+    spring.set(value);
+  }, [value, spring]);
+
+  return <motion.span>{display}</motion.span>;
+};
+
+const AnimatedCircularProgress: React.FC<{ percentage: number }> = ({ percentage }) => {
+  const radius = 60;
+  const stroke = 12;
+  const normalizedRadius = radius - stroke * 2;
+  const circumference = normalizedRadius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+  return (
+    <div style={{ position: 'relative', width: '120px', height: '120px', margin: '0 auto' }}>
+      <svg height={radius * 2} width={radius * 2}>
+        <circle
+          stroke="rgba(255,255,255,0.05)"
+          fill="transparent"
+          strokeWidth={stroke}
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+        />
+        <motion.circle
+          stroke="var(--accent-teal)"
+          fill="transparent"
+          strokeWidth={stroke}
+          strokeDasharray={circumference + ' ' + circumference}
+          style={{ strokeDashoffset }}
+          strokeLinecap="round"
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          transform={`rotate(-90 ${radius} ${radius})`}
+        />
+      </svg>
+      <div className="flex-center" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'column' }}>
+        <span style={{ fontSize: '24px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)' }}>
+          <RollingNumber value={percentage} />%
+        </span>
+      </div>
+    </div>
+  );
+};
+
 export const TaskListScreen: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser, permissions } = useAuth();
@@ -112,6 +168,10 @@ export const TaskListScreen: React.FC = () => {
   const filtered = getFilteredTasks();
   const canCreate = permissions.isAtLeastTier1;
 
+  const overallProgress = tasks.length > 0 
+    ? Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100) 
+    : 0;
+
   return (
     <div className="task-list-container">
       <header className="page-header">
@@ -128,39 +188,31 @@ export const TaskListScreen: React.FC = () => {
         )}
       </header>
 
-      {/* Header Stat Badges Row */}
-      <div className="stats-badges-row flex-center" style={{ gap: '10px', marginBottom: '16px' }}>
-        <div className="stat-badge flex-center pending">
-          <span className="stat-badge-num">{pendingCount}</span>
-          <span className="stat-badge-lbl">Pending</span>
-        </div>
-        <div className="stat-badge flex-center active">
-          <span className="stat-badge-num">{activeCount}</span>
-          <span className="stat-badge-lbl">Active</span>
-        </div>
-        <div className="stat-badge flex-center review">
-          <span className="stat-badge-num">{reviewCount}</span>
-          <span className="stat-badge-lbl">Review</span>
-        </div>
-      </div>
-
-      {/* Overall Progress Bar */}
-      {tasks.length > 0 && (
-        <div className="overall-progress-section" style={{ marginBottom: '24px' }}>
-          <div className="flex-center" style={{ justifyContent: 'space-between', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)' }}>Overall Progress</span>
-            <span style={{ fontSize: '14px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)', color: 'var(--accent-teal)' }}>
-              {((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100).toFixed(0)}%
-            </span>
+      {/* Redesigned Hero Dashboard */}
+      <GlassCard padding="24px" style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', fontFamily: 'var(--font-space-grotesk)', marginBottom: '8px' }}>Platform Progress</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Keep track of your team's ongoing tasks and overall execution.</p>
           </div>
-          <div className="progress-bar-container" style={{ height: '8px' }}>
-            <div 
-              className="progress-bar-fill" 
-              style={{ width: `${(tasks.filter(t => t.status === 'completed').length / tasks.length) * 100}%`, backgroundColor: 'var(--accent-teal)' }}
-            ></div>
+          <AnimatedCircularProgress percentage={overallProgress} />
+        </div>
+        
+        <div className="stats-badges-row flex-center" style={{ gap: '12px' }}>
+          <div className="stat-badge flex-center pending" style={{ padding: '16px', flex: 1, alignItems: 'flex-start' }}>
+            <span className="stat-badge-num" style={{ fontSize: '28px' }}><RollingNumber value={pendingCount} /></span>
+            <span className="stat-badge-lbl" style={{ marginTop: '4px' }}>Pending</span>
+          </div>
+          <div className="stat-badge flex-center active" style={{ padding: '16px', flex: 1, alignItems: 'flex-start' }}>
+            <span className="stat-badge-num" style={{ fontSize: '28px' }}><RollingNumber value={activeCount} /></span>
+            <span className="stat-badge-lbl" style={{ marginTop: '4px' }}>Active</span>
+          </div>
+          <div className="stat-badge flex-center review" style={{ padding: '16px', flex: 1, alignItems: 'flex-start' }}>
+            <span className="stat-badge-num" style={{ fontSize: '28px' }}><RollingNumber value={reviewCount} /></span>
+            <span className="stat-badge-lbl" style={{ marginTop: '4px' }}>Review</span>
           </div>
         </div>
-      )}
+      </GlassCard>
 
       {/* Filter Tabs Header */}
       <div className="tasks-tabs-row">
