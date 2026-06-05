@@ -228,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .order('deadline', ascending: true)
             .limit(3),
         // Use count() to avoid downloading all rows just for .length
-        client.from('users').select('id').limit(1000),
+        client.from('members').select('id').not('iste_id', 'is', null).neq('iste_id', '').limit(1000),
         client.from('events').select('id').limit(1000),
         client.from('folders').select('id').limit(1000),
         if (perms?.canManageBudget ?? false)
