@@ -93,8 +93,19 @@ export const BudgetOverviewScreen: React.FC = () => {
       }
 
       // 2. Load requests
+      // Guard: if scoped view with no folder memberships, return empty to avoid .in([]) returning all records
       let reqQuery = supabase.from('budget_requests').select('*, folder_id:execom_id');
       if (!permissions.isAtLeastTier2) {
+        if (fIds.length === 0) {
+          setRequests([]);
+          setLedgerEntries([]);
+          setIncomeEntries([]);
+          setTotalIncome(0);
+          setTotalSpent(0);
+          setTotalApproved(0);
+          setTotalPlanned(0);
+          return;
+        }
         reqQuery = reqQuery.in('execom_id', fIds);
       }
       const { data: reqData } = await reqQuery.order('created_at', { ascending: false });
@@ -104,6 +115,7 @@ export const BudgetOverviewScreen: React.FC = () => {
       // 3. Load Financial Ledger Data (Expenses)
       let ledgerQuery = supabase.from('financial_ledger').select('*, folder_id:execom_id');
       if (!permissions.canViewTotalBudget) {
+        // fIds is guaranteed non-empty here for scoped users (guarded above)
         ledgerQuery = ledgerQuery.in('execom_id', fIds);
       }
       const { data: ledgerData } = await ledgerQuery.order('transaction_date', { ascending: false });
@@ -113,6 +125,7 @@ export const BudgetOverviewScreen: React.FC = () => {
       // 4. Load Financial Income Data
       let incomeQuery = supabase.from('financial_income').select('*, folder_id:execom_id');
       if (!permissions.canViewTotalBudget) {
+        // fIds is guaranteed non-empty here for scoped users (guarded above)
         incomeQuery = incomeQuery.in('execom_id', fIds);
       }
       const { data: incomeData } = await incomeQuery.order('transaction_date', { ascending: false });
@@ -317,9 +330,9 @@ export const BudgetOverviewScreen: React.FC = () => {
   const isAtLeastTier2 = permissions.isAtLeastTier2;
   const remaining = isAtLeastTier2 ? (totalIncome - totalSpent) : (forumAllocation - totalSpent);
 
-  // Group chart data: Income vs Expense in last transactions
+  // Group chart data: For tier 3, show allocation vs spent; for tier 2+, show income vs expense
   const chartData = [
-    { name: 'Income', amount: totalIncome, fill: '#16c07a' },
+    { name: isAtLeastTier2 ? 'Income' : 'Allocation', amount: isAtLeastTier2 ? totalIncome : forumAllocation, fill: '#16c07a' },
     { name: 'Expense', amount: totalSpent, fill: '#ef4444' }
   ];
 
