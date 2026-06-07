@@ -125,9 +125,23 @@ export const CustomTextField: React.FC<CustomTextFieldProps> = ({
           border-radius: 14px;
           font-size: 14px;
           font-family: var(--font-inter);
-          color: var(--text-primary);
+          color: #ffffff;
+          -webkit-text-fill-color: #ffffff;
           outline: none;
           transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+          caret-color: #ffffff;
+        }
+
+        /* Override browser autofill background (Chromium/Safari) */
+        .custom-input-field:-webkit-autofill,
+        .custom-input-field:-webkit-autofill:hover,
+        .custom-input-field:-webkit-autofill:focus,
+        .custom-input-field:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px rgba(22, 28, 42, 0.95) inset !important;
+          -webkit-text-fill-color: #ffffff !important;
+          caret-color: #ffffff;
+          border-color: var(--border-light);
+          transition: background-color 9999s ease-in-out 0s;
         }
 
         .custom-input-field.has-prefix {
