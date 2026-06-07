@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useNavigate } from 'react-router-dom';
 import { motion, useSpring, useTransform } from 'framer-motion';
-import PageTransition from '../../shared/components/PageTransition';
+
+import { supabase } from '../../core/supabase-client';
 
 // Initialize a separate client for Mentron DB
 const mentronClient = createClient(
@@ -51,19 +52,13 @@ const MentronDashboardScreen: React.FC = () => {
     try {
       if (showLoading) setLoading(true);
       
-      // Profiles
-      const { data: profilesData } = await mentronClient.from('profiles').select('id, role');
-      let students = 0;
-      let admins = 0;
-      if (profilesData) {
-        for (const profile of profilesData) {
-          if (profile.role === 'exec' || profile.role === 'core') {
-            admins++;
-          } else {
-            students++;
-          }
-        }
-      }
+      // Registered Students & Active Admins from ISTE DB
+      const [{ count: membersCount }, { count: execomCount }] = await Promise.all([
+        supabase.from('users').select('*', { count: 'exact', head: true }),
+        supabase.from('users').select('*', { count: 'exact', head: true }).in('role', ['chairman', 'vice-chair', 'secretary', 'treasurer', 'core', 'admin'])
+      ]);
+      const students = membersCount || 0;
+      const admins = execomCount || 0;
       
       // Notes
       const { data: notesData } = await mentronClient.from('notes').select('id');
@@ -90,7 +85,12 @@ const MentronDashboardScreen: React.FC = () => {
   };
 
   return (
-    <PageTransition>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+    >
       <div className="mentron-dashboard flex-col">
         {/* Header */}
         <header className="home-header">
@@ -160,7 +160,7 @@ const MentronDashboardScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </PageTransition>
+    </motion.div>
   );
 };
 
