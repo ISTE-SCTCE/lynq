@@ -17,7 +17,13 @@ export class PermissionEngine {
   }
 
   get role(): AppRole {
-    return appRoleFromString(this.user.role);
+    const dbRole = appRoleFromString(this.user.role);
+    // If DB role underreports access: a user in folder_members is at minimum a forum execom member.
+    // This handles cases where the users.role field is 'member' but they have actual folder assignments.
+    if (dbRole < AppRole.forumExeccom && this.userFolderMemberships.length > 0) {
+      return AppRole.forumExeccom;
+    }
+    return dbRole;
   }
 
   // Tier getters
@@ -80,9 +86,9 @@ export class PermissionEngine {
 
   // Feature limits
   get canCreateEvents(): boolean { return this.isAtLeastTier3; }
-  get canReadReports(): boolean { return this.isAtLeastTier2; }
+  get canReadReports(): boolean { return this.isAtLeastTier2 || (this.isMemberOfFolder(0) && this.isFeatureEnabledGlobally(FolderFeature.viewReports)); }
   get canUploadReports(): boolean { return this.isAtLeastTier4; }
-  get canViewTotalBudget(): boolean { return this.isAtLeastTier2; }
+  get canViewTotalBudget(): boolean { return this.isAtLeastTier2 || (this.isMemberOfFolder(0) && this.isFeatureEnabledGlobally(FolderFeature.viewTotalBudget)); }
   get canAccessScopedBudget(): boolean { return this.isAtLeastTier3; }
   get canViewMembers(): boolean { return this.role !== AppRole.restricted; }
   get isPanel(): boolean { return this.isTier4; }

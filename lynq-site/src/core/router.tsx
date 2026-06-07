@@ -70,10 +70,12 @@ interface GuardProps {
 }
 
 const PermissionGuard: React.FC<GuardProps> = ({ check }) => {
-  const { permissions, currentUser } = useAuth();
+  const { permissions, currentUser, isLoading } = useAuth();
   
-  if (!permissions || !currentUser) {
-    return <Navigate to="/home" replace />;
+  // Wait for auth to fully resolve before making access decisions.
+  // Redirecting while loading causes false bounces to /home for valid users.
+  if (isLoading || !permissions || !currentUser) {
+    return null;
   }
 
   const role = permissions.role;

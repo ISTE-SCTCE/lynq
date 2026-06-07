@@ -30,7 +30,7 @@ export const HomeScreen: React.FC = () => {
   const [isUpcomingLoading, setIsUpcomingLoading] = useState(true);
   const [activeForums, setActiveForums] = useState<any[]>([]);
   const [isForumsLoading, setIsForumsLoading] = useState(true);
-  const [stats, setStats] = useState({ members: 73, execom: 0, events: 1, forums: 5 });
+  const [stats, setStats] = useState<{ members: number; execom: number; events: number; forums: number } | null>(null);
 
   useEffect(() => {
     if (!currentUser || !permissions) return;
@@ -121,7 +121,9 @@ export const HomeScreen: React.FC = () => {
     };
 
     fetchDashboardData();
-  }, [currentUser, permissions]);
+  // Use currentUser?.id (primitive) as dep — permissions is a new object ref on every
+  // background auth refresh, which would cause fetchDashboardData to loop endlessly.
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!currentUser || !permissions) return null;
 
@@ -201,7 +203,7 @@ export const HomeScreen: React.FC = () => {
                 <div className="stat-icon-wrapper">
                   <Users size={18} />
                 </div>
-                <div className="stat-value">{stats.members}</div>
+                <div className="stat-value">{stats?.members ?? '—'}</div>
                 <div className="stat-label">MEMBERS</div>
               </GlassCard>
 
@@ -209,7 +211,7 @@ export const HomeScreen: React.FC = () => {
                 <div className="stat-icon-wrapper">
                   <ShieldAlert size={18} />
                 </div>
-                <div className="stat-value">{stats.execom}</div>
+                <div className="stat-value">{stats?.execom ?? '—'}</div>
                 <div className="stat-label">EXECOM</div>
               </GlassCard>
               
@@ -217,7 +219,7 @@ export const HomeScreen: React.FC = () => {
                 <div className="stat-icon-wrapper">
                   <Calendar size={18} />
                 </div>
-                <div className="stat-value">{stats.events}</div>
+                <div className="stat-value">{stats?.events ?? '—'}</div>
                 <div className="stat-label">EVENTS</div>
               </GlassCard>
 
@@ -225,7 +227,7 @@ export const HomeScreen: React.FC = () => {
                 <div className="stat-icon-wrapper">
                   <FolderOpen size={18} />
                 </div>
-                <div className="stat-value">{stats.forums}</div>
+                <div className="stat-value">{stats?.forums ?? '—'}</div>
                 <div className="stat-label">TEAMS</div>
               </GlassCard>
             </div>

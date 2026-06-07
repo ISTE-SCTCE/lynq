@@ -36,8 +36,8 @@ function readCache(uid: string): UserCache | null {
     const raw = localStorage.getItem(CACHE_KEY(uid));
     if (!raw) return null;
     const parsed: UserCache = JSON.parse(raw);
-    // Cache valid for 5 minutes
-    if (Date.now() - parsed.cachedAt > 5 * 60 * 1000) return null;
+    // Cache valid for 10 minutes
+    if (Date.now() - parsed.cachedAt > 10 * 60 * 1000) return null;
     return parsed;
   } catch { return null; }
 }
@@ -118,7 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const [profileRes, membershipsRes] = await Promise.all([
+      // Fire profile + memberships + global permissions all in parallel (1 roundtrip)
+      const [profileRes, membershipsRes, globalPermsRes] = await Promise.all([
         supabase
           .from('users')
           .select('id, email, name, role, post, phone, roll_number, branch, forum, is_sudo')
@@ -127,6 +128,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supabase.from('folder_members')
           .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users:users(id, name, email, role, post)')
           .eq('user_id', user.id),
+        supabase.from('folder_permissions')
+          .select('id, folder_id:execom_id, feature, allowed')
+          .eq('execom_id', 0),
       ]);
 
       if (profileRes.error || !profileRes.data) {
@@ -136,18 +140,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const parsedUser = profileRes.data as UserModel;
       const memberships = (membershipsRes.data || []) as unknown as FolderMemberModel[];
 
-      // ── Step 3: Fetch permissions (needs folder IDs from memberships)
+      // Fetch folder-specific permissions only if the user belongs to any folders
       const folderIds = memberships.map((m) => m.folder_id);
-      let permQuery = supabase.from('folder_permissions').select('id, folder_id:execom_id, feature, allowed');
-      if (folderIds.length > 0) {
-        permQuery = permQuery.or(`execom_id.eq.0,execom_id.in.(${folderIds.join(',')})`);
-      } else {
-        permQuery = permQuery.eq('execom_id', 0);
-      }
-      const { data: permData } = await permQuery;
-      const permissionsMap = buildPermissionsMap((permData || []) as FolderPermissionModel[]);
+      let allPerms = (globalPermsRes.data || []) as FolderPermissionModel[];
 
-      // ── Step 4: Apply state + write cache
+      if (folderIds.length > 0) {
+        const { data: folderPermsData } = await supabase
+          .from('folder_permissions')
+          .select('id, folder_id:execom_id, feature, allowed')
+          .in('execom_id', folderIds);
+        allPerms = [...allPerms, ...(folderPermsData || []) as FolderPermissionModel[]];
+      }
+
+      const permissionsMap = buildPermissionsMap(allPerms);
+
+      // Apply state + write cache
       applyUserState(parsedUser, memberships, permissionsMap);
       writeCache(user.id, { user: parsedUser, memberships, permissionsMap });
 
@@ -173,7 +180,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initSession = async () => {
       try {
-        const { data: sessionData } = await getSessionWithTimeout(3000);
+        const { data: sessionData } = await getSessionWithTimeout(800);
         const u = sessionData?.session?.user ?? null;
         if (u) {
           setAuthUser(u);
