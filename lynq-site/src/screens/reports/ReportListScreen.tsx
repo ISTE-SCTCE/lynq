@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Eye, Trash, Edit, FileText, Loader } from 'lucide-react';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
-import { AppRole, appRoleFromString } from '../../core/constants';
+import { AppRole, appRoleFromString, FolderFeature } from '../../core/constants';
 import { GlassCard } from '../../shared/components/GlassCard';
 import { NavBar } from '../../shared/components/NavBar';
 
@@ -46,26 +46,40 @@ export const ReportListScreen: React.FC = () => {
 
       // Filter reports matching role hierarchy visibility rules
       const myRole = permissions.role;
+      const isGlobal = permissions.isMemberOfFolder(0);
+      const canViewGlobally = isGlobal && permissions.isFeatureEnabledGlobally(FolderFeature.viewReports);
+      const myFolderIds = permissions.userFolderIds || [];
+
       const filtered = loadedReports.filter((report) => {
         const uploaderId = report.uploaded_by;
         if (uploaderId === currentUser.id) return true; // Owner always sees
-        if (myRole === AppRole.chairman) return true; // Chairman sees all
+        if (myRole === AppRole.chairman || myRole === AppRole.viceChairman || canViewGlobally) return true; // Tier 1 and explicit globals see all
 
         const uploaderRoleStr = userCache[uploaderId]?.role;
         if (uploaderRoleStr) {
           const uploaderRole = appRoleFromString(uploaderRoleStr);
-          if (myRole === AppRole.viceChairman && uploaderRole <= AppRole.viceChairman) return true;
+          if (myRole < uploaderRole) return false;
         }
 
-        const visibility = Array.isArray(report.visibility) ? report.visibility : [];
-        const roleDbStr = (myRole as AppRole) === AppRole.chairman ? 'chairman' :
-                         myRole === AppRole.viceChairman ? 'vice_chairman' :
-                         myRole === AppRole.coreExeccom ? 'core_execcom' :
-                         myRole === AppRole.forumExeccom ? 'forum_execcom' :
-                         myRole === AppRole.panel ? 'panel' : 'member';
-        
-        if (visibility.includes(roleDbStr)) return true;
-        return false;
+        // Team Isolation: If report belongs to a team, you must be in that team or be Tier 2
+        const execomId = report.execom_id;
+        if (execomId != null && myRole < AppRole.coreExeccom) {
+          if (!myFolderIds.includes(execomId)) {
+            return false; // Cross-team isolation
+          }
+        }
+
+        const restrictedTeams = Array.isArray(report.restricted_teams) ? report.restricted_teams : [];
+        if (restrictedTeams.length > 0) {
+           for (const rTeam of restrictedTeams) {
+              const teamId = parseInt(rTeam, 10);
+              if (!isNaN(teamId) && myFolderIds.includes(teamId)) {
+                 return false; // Specifically restricted by Tier 1
+              }
+           }
+        }
+
+        return true;
       });
 
       setReports(filtered);
