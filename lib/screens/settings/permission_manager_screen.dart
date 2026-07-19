@@ -43,7 +43,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
         _supabase.from('users').select().order('name'),
         _supabase.from('folders').select().eq('is_forum', true).order('name'),
         _supabase.from('folder_permissions').select(),
-        _supabase.from('folder_members').select('*, users(*)').eq('execom_id', 0),
+        _supabase.from('folder_members').select('*, users!folder_members_user_id_fkey(*)').eq('execom_id', 0),
       ]);
 
       if (mounted) {
@@ -54,7 +54,8 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
           _authorizedCoreMembers = (responses[3] as List)
               .where((m) => m['users'] != null)
               .map((m) => UserModel.fromJson(m['users']))
-              .toList();
+              .toList()
+            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
           _isLoading = false;
         });
       }
@@ -98,9 +99,12 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
 
   // ── Authorized Core Management ──
   Future<void> _addAuthorizedMember() async {
+    final existingIds = _authorizedCoreMembers.map((m) => m.id).toSet();
+    final availableUsers = _allUsers.where((u) => !existingIds.contains(u.id)).toList();
+    
     final user = await showSearch<UserModel?>(
       context: context,
-      delegate: _UserSearchDelegate(_allUsers),
+      delegate: _UserSearchDelegate(availableUsers),
     );
     if (user != null) {
       try {
@@ -319,7 +323,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(user.name, style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 14)),
-                      Text(user.post ?? 'Core Member', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey)),
+                      Text('${user.post ?? 'Core Member'} • ${user.email}', style: GoogleFonts.inter(fontSize: 11, color: Colors.grey)),
                     ],
                   ),
                 ),
@@ -387,7 +391,7 @@ class _UserSearchDelegate extends SearchDelegate<UserModel?> {
         final user = filtered[index];
         return ListTile(
           title: Text(user.name),
-          subtitle: Text(user.post ?? user.role),
+          subtitle: Text('${user.post ?? user.role} • ${user.email}'),
           onTap: () => close(context, user),
         );
       },

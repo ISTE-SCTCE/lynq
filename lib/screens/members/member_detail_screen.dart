@@ -75,6 +75,24 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     String selectedRole = _user!.role;
     bool isSaving = false;
 
+    final customRoles = [
+      'exis_secretary', 'exis_joint_secretary', 'exis_coordinator',
+      'bits_secretary', 'bits_joint_secretary', 'bits_coordinator',
+      'genesis_secretary', 'genesis_joint_secretary', 'genesis_coordinator',
+      'torq_secretary', 'torq_joint_secretary', 'torq_coordinator',
+      'swas_secretary', 'swas_joint_secretary', 'swas_coordinator',
+      'nexus_head', 'nexus_coordinator',
+    ];
+    
+    // Ensure the current role is always an option to avoid dropdown assertions
+    List<String> allValues = [
+      ...AppRole.values.where((r) => r != AppRole.restricted).map((e) => e.toDbString()),
+      ...customRoles
+    ];
+    if (!allValues.contains(selectedRole)) {
+      selectedRole = AppRole.member.toDbString();
+    }
+
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -82,20 +100,29 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
           backgroundColor: Colors.grey[900],
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Text('Change Role', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, color: Colors.white)),
-          content: DropdownButtonFormField<String>(
-            value: selectedRole,
-            dropdownColor: Colors.grey[900],
-            style: GoogleFonts.inter(color: Colors.white),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.05),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+          content: SingleChildScrollView(
+            child: DropdownButtonFormField<String>(
+              value: selectedRole,
+              dropdownColor: Colors.grey[900],
+              style: GoogleFonts.inter(color: Colors.white),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
+              items: [
+                ...AppRole.values
+                    .where((r) => r != AppRole.restricted)
+                    .map((r) => DropdownMenuItem(value: r.toDbString(), child: Text(r.label))),
+                const DropdownMenuItem(value: '', enabled: false, child: Divider(color: Colors.white24)),
+                ...customRoles.map((r) => DropdownMenuItem(value: r, child: Text(AppRole.formatRoleDisplay(r)))),
+              ],
+              onChanged: (v) {
+                if (v != null && v.isNotEmpty) {
+                  setState(() => selectedRole = v);
+                }
+              },
             ),
-            items: AppRole.values
-                .where((r) => r != AppRole.restricted)
-                .map((r) => DropdownMenuItem(value: r.toDbString(), child: Text(r.label)))
-                .toList(),
-            onChanged: (v) => setState(() => selectedRole = v!),
           ),
           actions: [
             TextButton(
@@ -282,6 +309,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     setState(() => _isLoading = true);
     try {
       await supabase.from('members').delete().eq('id', widget.userId);
+      if (_linkedUserId != null) {
+        await supabase.from('users').delete().eq('id', _linkedUserId!);
+      }
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -560,7 +590,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                                 ),
                               ),
                             const SizedBox(height: 8),
-                            Text(AppRole.fromString(_user!.role).label, style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
+                            Text(AppRole.formatRoleDisplay(_user!.role), style: GoogleFonts.inter(fontSize: 13, color: Colors.grey)),
                             const SizedBox(height: 4),
                             Text(_user!.email, style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
                             if (_user!.status == 'suspended') ...[

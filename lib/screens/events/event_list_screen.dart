@@ -11,6 +11,7 @@ import '../../core/constants.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/liquid_glass_nav_bar.dart';
+import 'certificate_issuance_screen.dart';
 import 'package:provider/provider.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -407,17 +408,39 @@ class _EventListScreenState extends State<EventListScreen> {
                 ],
                 const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Tap for details',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.secondary.withValues(alpha: 0.8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => context.push('/scan?event=${event.id}'),
+                        icon: const Icon(Icons.qr_code_scanner_rounded, size: 16),
+                        label: Text('Scan', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.secondary,
+                          side: BorderSide(color: AppTheme.secondary.withValues(alpha: 0.4)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
                       ),
                     ),
-                    Icon(Icons.arrow_forward, size: 16, color: AppTheme.secondary.withValues(alpha: 0.8)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => CertificateIssuanceScreen(event: event),
+                          ),
+                        ),
+                        icon: const Icon(Icons.workspace_premium_rounded, size: 16),
+                        label: Text('Certificates', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.amber.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ],

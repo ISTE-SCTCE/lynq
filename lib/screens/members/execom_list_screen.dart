@@ -46,8 +46,41 @@ class _ExecomListScreenState extends State<ExecomListScreen> {
         grouped.putIfAbsent(folderName, () => []).add(user);
       }
 
+      // Sort members within each team
+      final roleWeights = {
+        'chairman': 0, 'chair': 0,
+        'vice_chairman': 1, 'vice-chair': 1, 'vice chair': 1,
+        'head': 2, 'technical head': 2, 'media head': 2, 'marketing head': 2, 'design head': 2,
+        'secretary': 3,
+        'joint_secretary': 4, 'joint secretary': 4,
+        'treasurer': 5, 'sub-treasurer': 5,
+        'core_execcom': 6, 'forum_execcom': 6, 'execom': 6,
+        'member': 7,
+        'panel': 8,
+        'restricted': 9,
+      };
+
+      final sortedGrouped = Map.fromEntries(
+        grouped.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key))
+          ..map((e) {
+            e.value.sort((a, b) {
+              final roleA = (a['execom_role'] as String?)?.toLowerCase() ?? 'member';
+              final roleB = (b['execom_role'] as String?)?.toLowerCase() ?? 'member';
+              final wA = roleWeights[roleA] ?? 10;
+              final wB = roleWeights[roleB] ?? 10;
+              if (wA != wB) return wA.compareTo(wB);
+              
+              final nameA = (a['name'] as String?)?.toLowerCase() ?? '';
+              final nameB = (b['name'] as String?)?.toLowerCase() ?? '';
+              return nameA.compareTo(nameB);
+            });
+            return e;
+          })
+      );
+
       setState(() {
-        _teams = grouped;
+        _teams = sortedGrouped;
         _totalExecomCount = uniqueUsers.length;
         _isLoading = false;
       });
@@ -171,7 +204,7 @@ class _ExecomListScreenState extends State<ExecomListScreen> {
                                             children: [
                                               Text(user['name'] ?? 'Unknown', style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
                                               Text(
-                                                user['execom_role'] ?? user['post'] ?? AppRole.fromString(role).label,
+                                                user['execom_role'] ?? user['post'] ?? AppRole.formatRoleDisplay(role),
                                                 style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
                                               ),
                                             ],
@@ -184,7 +217,7 @@ class _ExecomListScreenState extends State<ExecomListScreen> {
                                             borderRadius: BorderRadius.circular(8),
                                           ),
                                           child: Text(
-                                            AppRole.fromString(role).label,
+                                            AppRole.formatRoleDisplay(role),
                                             style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: _roleColor(role)),
                                           ),
                                         ),

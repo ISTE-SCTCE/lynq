@@ -126,7 +126,7 @@ class _TaskListScreenState extends State<TaskListScreen>
       body: NestedScrollView(
         headerSliverBuilder: (ctx, inner) => [
           SliverAppBar(
-            expandedHeight: 210,
+            expandedHeight: 380,
             pinned: true,
             backgroundColor: theme.scaffoldBackgroundColor,
             title: Text(

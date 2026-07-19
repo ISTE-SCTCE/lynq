@@ -133,6 +133,7 @@ class EventBudgetModel {
   final double budgetLimit;
   final double actualSpent;
   final DateTime? date;
+  final int? execomId;
 
   const EventBudgetModel({
     required this.id,
@@ -140,6 +141,7 @@ class EventBudgetModel {
     required this.budgetLimit,
     required this.actualSpent,
     this.date,
+    this.execomId,
   });
 
   factory EventBudgetModel.fromJson(Map<String, dynamic> json) => EventBudgetModel(
@@ -148,6 +150,7 @@ class EventBudgetModel {
     budgetLimit: (json['budget_limit'] as num).toDouble(),
     actualSpent: (json['actual_spent'] as num).toDouble(),
     date: json['date'] != null ? DateTime.parse(json['date']) : null,
+    execomId: json['execom_id'] as int?,
   );
 }
 

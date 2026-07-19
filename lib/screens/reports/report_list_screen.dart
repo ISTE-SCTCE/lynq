@@ -69,14 +69,25 @@ class _ReportListScreenState extends State<ReportListScreen> {
         final uploaderId = report['uploaded_by'];
         if (uploaderId == myId) return true; // Uploader always sees their own
 
-        if (myRole == AppRole.chairman || myRole == AppRole.viceChairman) return true; // Tier 1 sees all
+        final isGlobal = authProvider.permissions?.isMemberOfFolder(0) ?? false;
+        final canViewGlobally = isGlobal && (authProvider.permissions?.isFeatureEnabledGlobally(FolderFeature.viewReports) ?? false);
+        
+        if (myRole == AppRole.chairman || myRole == AppRole.viceChairman || canViewGlobally) return true; // Tier 1 and explicit globals see all
 
         final uploaderRoleStr = _userCache[uploaderId]?['role'];
         final uploaderRole = AppRole.fromString(uploaderRoleStr);
 
         // Tier logic: Higher AppRole level = lower tier number (Tier 1 = Chairman)
-        // If Uploader is ForumExeccom (level 3), only levels >= 3 can see it.
         if (myRole.level < uploaderRole.level) return false;
+        
+        // Team Isolation: If report belongs to a team, you must be in that team or be Tier 2
+        final execomId = report['execom_id'] as int?;
+        if (execomId != null && myRole.level < AppRole.coreExeccom.level) {
+          final myFolderIds = authProvider.permissions?.userFolderIds ?? [];
+          if (!myFolderIds.contains(execomId)) {
+            return false; // Cross-team isolation
+          }
+        }
         
         // Team Restriction Overrides Check
         final restrictedRaw = report['restricted_teams'];
