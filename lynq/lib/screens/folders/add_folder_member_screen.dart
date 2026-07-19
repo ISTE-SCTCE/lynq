@@ -103,23 +103,7 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
     ).toList();
   }
 
-  UserModel? get _alreadyInForumUser {
-    if (_searchQuery.trim().isEmpty) return null;
-    final query = _searchQuery.trim().toLowerCase();
-    
-    try {
-      return _allGlobalUsers.firstWhere(
-        (u) => _existingUserIds.contains(u.id) && (
-          u.name.toLowerCase().contains(query) || 
-          u.email.toLowerCase().contains(query) ||
-          (u.phone ?? '').contains(query) ||
-          (u.rollNumber ?? '').toLowerCase().contains(query)
-        ),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
+
 
   Future<void> _addMember(UserModel user, String role) async {
     setState(() => _isLoading = true);
@@ -279,29 +263,7 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
       );
     }
 
-    final alreadyIn = _alreadyInForumUser;
-    if (alreadyIn != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-              const SizedBox(height: 24),
-              Text(alreadyIn.name, style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('This user is already a member of this forum.', textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: () => setState(() => _searchCtrl.clear()),
-                child: const Text('Clear Search'),
-              )
-            ],
-          ),
-        ),
-      );
-    }
+
     return _buildQuickEnrollmentForm();
   }
 

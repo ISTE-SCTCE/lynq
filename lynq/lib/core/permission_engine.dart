@@ -90,12 +90,12 @@ class PermissionEngine {
   bool get canCreateEvents => isAtLeastTier3;
 
   /// 2. Report viewing access is limited to Tier 2 and all tiers above.
-  bool get canReadReports => isAtLeastTier2;
+  bool get canReadReports => isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewReports));
 
   bool get canUploadReports => isAtLeastTier4;
 
   /// 5. Full organizational budget viewing access is restricted to Tier 2 and above.
-  bool get canViewTotalBudget => isAtLeastTier2;
+  bool get canViewTotalBudget => isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewTotalBudget));
 
   /// 6. Tier 3 (Forum-Execom) may view their forum budget. No activation gate.
   bool get canAccessScopedBudget => isAtLeastTier3;

@@ -251,7 +251,7 @@ class _MemberListScreenState extends State<MemberListScreen> with SingleTickerPr
                                   children: [
                                     Text(user.name, style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 14)),
                                     Text(
-                                      user.post ?? AppRole.fromString(user.role).label,
+                                      user.post ?? AppRole.formatRoleDisplay(user.role),
                                       style: GoogleFonts.inter(fontSize: 12, color: Colors.grey),
                                     ),
                                     if (user.membershipDate != null || user.expiryDate != null) ...[
@@ -274,7 +274,7 @@ class _MemberListScreenState extends State<MemberListScreen> with SingleTickerPr
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
-                                      AppRole.fromString(user.role).label,
+                                      AppRole.formatRoleDisplay(user.role),
                                       style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600, color: _roleColor(user.role)),
                                     ),
                                   ),

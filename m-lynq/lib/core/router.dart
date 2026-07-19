@@ -36,9 +36,13 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     redirect: (context, state) {
       final authState = ref.read(authProvider);
-      final loc = state.matchedLocation;
+      final loc = state.uri.path;
       if (authState.isLoading) return loc == '/splash' ? null : '/splash';
-      if (!authState.isAuthenticated) return loc == '/login' ? null : '/login';
+      if (!authState.isAuthenticated) {
+        // Allow unauthenticated users to see splash screen for onboarding
+        if (loc == '/splash') return null;
+        return loc == '/login' ? null : '/login';
+      }
       if (loc == '/splash' || loc == '/login') return '/home';
       return null;
     },

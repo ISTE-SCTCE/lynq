@@ -42,13 +42,18 @@ class _FolderPermissionsScreenState extends State<FolderPermissionsScreen> {
   Future<void> _savePermissions() async {
     setState(() => _isSaving = true);
     try {
+      final List<Map<String, dynamic>> upserts = [];
       for (final entry in _permissions.entries) {
-        await Supabase.instance.client
-            .from('folder_permissions')
-            .update({'allowed': entry.value})
-            .eq('execom_id', widget.folderId)
-            .eq('feature', entry.key);
+        upserts.add({
+          'execom_id': widget.folderId,
+          'feature': entry.key,
+          'allowed': entry.value,
+        });
       }
+      
+      await Supabase.instance.client
+          .from('folder_permissions')
+          .upsert(upserts, onConflict: 'execom_id,feature');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Permissions saved'), backgroundColor: Colors.green),

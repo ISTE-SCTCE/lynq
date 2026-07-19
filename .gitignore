@@ -3,3 +3,7 @@
 apk/
 debug_apk/
 *.apk
+
+# Backups
+.agents_backup/
+.claude_backup/

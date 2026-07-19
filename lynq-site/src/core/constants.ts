@@ -25,6 +25,19 @@ export function appRoleFromString(s?: string): AppRole {
   if (normalized === 'restricted') return AppRole.restricted;
   if (normalized === 'panel') return AppRole.panel;
   
+  // Check for forum roles FIRST to prevent "SWAS Chairman" from becoming Tier 1/2
+  if (normalized.includes('swas') || 
+      normalized.includes('exis') || 
+      normalized.includes('genesis') || 
+      normalized.includes('torq') || 
+      normalized.includes('bits') ||
+      normalized.includes('talk') ||
+      normalized.includes('nexus') ||
+      normalized.includes('forum_execcom') ||
+      normalized.includes('forum_secretary')) {
+    return AppRole.forumExeccom;
+  }
+
   if (normalized.includes('vice') && (normalized.includes('chair') || normalized.includes('chairman'))) {
     return AppRole.viceChairman;
   }
@@ -36,11 +49,23 @@ export function appRoleFromString(s?: string): AppRole {
   if (normalized.includes('core') || 
       normalized.includes('head') || 
       normalized.includes('secretary') || 
-      normalized.includes('treasurer')) {
+      normalized.includes('treasurer') ||
+      normalized.includes('webmaster') ||
+      normalized.includes('sponsorship') ||
+      normalized.includes('logistics') ||
+      normalized.includes('hospitality') ||
+      normalized.includes('public_relations') ||
+      normalized.includes('strategist') ||
+      normalized.includes('media') ||
+      normalized.includes('design') ||
+      normalized.includes('creative') ||
+      normalized.includes('technical') ||
+      normalized.includes('ideation') ||
+      normalized.includes('marketing')) {
     return AppRole.coreExeccom;
   }
   
-  // Forum Execom roles
+  // Fallback for general forum execom
   if (normalized.includes('execcom') || 
       normalized.includes('execom') || 
       normalized.includes('coordinator')) {

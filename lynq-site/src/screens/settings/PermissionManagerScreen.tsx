@@ -38,7 +38,7 @@ export const PermissionManagerScreen: React.FC = () => {
         supabase.from('users').select().order('name'),
         supabase.from('folders').select().order('name'),
         supabase.from('folder_permissions').select('id, folder_id:execom_id, feature, allowed'),
-        supabase.from('folder_members').select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users(*)').eq('execom_id', 0)
+        supabase.from('folder_members').select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users!folder_members_user_id_fkey(*)').eq('execom_id', 0)
       ]);
 
       if (usersError) throw usersError;

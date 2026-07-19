@@ -126,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .eq('id', user.id)
           .single(),
         supabase.from('folder_members')
-          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users:users(id, name, email, role, post)')
+          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users:users!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('user_id', user.id),
         supabase.from('folder_permissions')
           .select('id, folder_id:execom_id, feature, allowed')

@@ -118,13 +118,13 @@ export const MemberDetailScreen: React.FC = () => {
 
     setIsUpdating(true);
     try {
-      // Sync role to BOTH users and members tables (keep consistent with Flutter app)
-      const [usersRes] = await Promise.all([
-        supabase.from('users').update({ role: selectedRole }).eq('id', user.id),
-        supabase.from('members').update({ role: selectedRole }).eq('user_id', user.id),
-      ]);
+      // Sync role to users table
+      const { error: usersError } = await supabase
+        .from('users')
+        .update({ role: selectedRole })
+        .eq('id', user.id);
 
-      if (usersRes.error) throw usersRes.error;
+      if (usersError) throw usersError;
 
       setShowRoleModal(false);
       loadUserData();
@@ -182,12 +182,23 @@ export const MemberDetailScreen: React.FC = () => {
 
     setIsUpdating(true);
     try {
+      // Delete from Supabase Auth via Edge Function to prevent zombie accounts
+      const response = await supabase.functions.invoke('admin-delete-user', {
+        body: { user_id: user.id }
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to delete user from Auth.');
+      }
+
+      // Also ensure it is deleted from the users table if edge function doesn't cascade
       const { error } = await supabase
         .from('users')
         .delete()
         .eq('id', user.id);
 
       if (error) throw error;
+      
       alert('Member removed successfully!');
       navigate('/members');
     } catch (e) {

@@ -67,29 +67,29 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
         });
       }
 
-      // Fetch from Mentron DB (Bypassing RLS with SECURITY DEFINER RPCs)
-      final profilesResp = await _mentronClient.rpc('get_all_mentron_profiles');
-      final allProfiles = List<Map<String, dynamic>>.from(profilesResp);
+      // Fetch from ISTE DB to match the web app's analytics
+      final usersResp = await Supabase.instance.client.from('users').select();
+      final allUsers = List<Map<String, dynamic>>.from(usersResp);
 
-      int students = 0;
+      int students = allUsers.length;
       int admins = 0;
       Map<String, int> deptCounts = {};
       Map<String, int> yrCounts = {};
 
-      for (var profile in allProfiles) {
-        final role = profile['role'];
-        if (role == 'exec' || role == 'core' || role == 'admin' || role == 'mentor' || role == 'superadmin') {
+      final adminRoles = ['chairman', 'vice-chair', 'secretary', 'treasurer', 'core', 'admin'];
+
+      for (var user in allUsers) {
+        final role = user['role'];
+        if (adminRoles.contains(role)) {
           admins++;
-        } else {
-          students++;
         }
 
-        final dept = profile['department']?.toString().trim();
+        final dept = user['branch']?.toString().trim();
         if (dept != null && dept.isNotEmpty) {
           deptCounts[dept] = (deptCounts[dept] ?? 0) + 1;
         }
 
-        final yr = profile['year']?.toString().trim();
+        final yr = user['year']?.toString().trim();
         if (yr != null && yr.isNotEmpty) {
           final yearLabel = 'Year $yr';
           yrCounts[yearLabel] = (yrCounts[yearLabel] ?? 0) + 1;

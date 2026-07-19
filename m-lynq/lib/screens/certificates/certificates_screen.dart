@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/providers/auth_provider.dart';
 
 class CertificatesScreen extends ConsumerStatefulWidget {
@@ -22,6 +23,7 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen> {
   static const _gold = Color(0xFFD4AF37);
   static const _bg = Color(0xFF141414);
   static const _surface = Color(0xFF1E1E1E);
+  static const _teal = Color(0xFF6FA4AF);
 
   @override
   void initState() {
@@ -34,12 +36,27 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen> {
     try {
       final data = await _supabase
           .from('certificates')
-          .select()
+          .select('*, events(title, date)')
           .eq('user_id', auth.user?.id ?? '')
           .order('issued_at', ascending: false);
       if (mounted) {
         setState(() {
-          _certificates = (data as List).cast<Map<String, dynamic>>();
+          _certificates = (data as List).map((item) {
+            final map = Map<String, dynamic>.from(item as Map);
+            // Use joined event title as description if description field is empty
+            if ((map['description'] == null || (map['description'] as String).isEmpty) &&
+                map['events'] != null) {
+              final event = map['events'] as Map<String, dynamic>;
+              map['description'] = 'Awarded for attending ${event['title'] ?? ''}';
+            }
+            // Use event title as certificate title if missing
+            if ((map['title'] == null || (map['title'] as String).isEmpty) &&
+                map['events'] != null) {
+              final event = map['events'] as Map<String, dynamic>;
+              map['title'] = 'Certificate of Participation – ${event['title'] ?? 'Event'}';
+            }
+            return map;
+          }).toList();
           _isLoading = false;
         });
       }
@@ -142,14 +159,30 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen> {
               ],
             ),
           ),
-          if (cert['file_url'] != null)
-            IconButton(
-              onPressed: () => launchUrl(Uri.parse(cert['file_url'] as String)),
-              icon: const Icon(Icons.download_rounded, color: _gold),
-              style: IconButton.styleFrom(
-                backgroundColor: _gold.withValues(alpha: 0.1),
+          if (cert['file_url'] != null) ...
+            [
+              IconButton(
+                onPressed: () => launchUrl(Uri.parse(cert['file_url'] as String),
+                    mode: LaunchMode.externalApplication),
+                icon: const Icon(Icons.download_rounded, color: _gold),
+                style: IconButton.styleFrom(
+                  backgroundColor: _gold.withValues(alpha: 0.1),
+                ),
+                tooltip: 'Download',
               ),
-            ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => Share.share(
+                  'My certificate from ISTE: ${cert['file_url']}',
+                  subject: cert['title'] as String? ?? 'ISTE Certificate',
+                ),
+                icon: const Icon(Icons.share_rounded, color: _teal),
+                style: IconButton.styleFrom(
+                  backgroundColor: _teal.withValues(alpha: 0.1),
+                ),
+                tooltip: 'Share',
+              ),
+            ],
         ],
       ),
     );

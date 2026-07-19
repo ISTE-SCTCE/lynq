@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/auth_provider.dart';
 import '../../core/permission_engine.dart';
 import '../../core/theme.dart';
+import '../../core/constants.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/liquid_glass_nav_bar.dart';
@@ -41,6 +42,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
   List<Map<String, dynamic>> _allCategories = []; // All categories for setup
   List<EventBudgetModel> _eventBudgets = []; // Event specific budgets
   List<Map<String, dynamic>> _ledgerEntries = []; // Detailed ledger data
+  List<Map<String, dynamic>> _adminForumAllocations = []; // For Tier 1 and 2 allocation feature
 
   RealtimeChannel? _ledgerChannel;
 
@@ -176,11 +178,34 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
       _allCategories = List<Map<String, dynamic>>.from(catData);
 
       // 7. Load Event Budgets
-      final eventBudgetData = await Supabase.instance.client
-          .from('event_budgets')
-          .select()
-          .order('date', ascending: false);
+      final eventQuery = Supabase.instance.client.from('event_budgets').select();
+      final eventBudgetData = await eventQuery.order('date', ascending: false);
       _eventBudgets = (eventBudgetData as List).map((e) => EventBudgetModel.fromJson(e)).toList();
+
+      // 8. Fetch Admin Forum Allocations (if Tier 1 or 2)
+      if (canViewTotal) {
+        final forumsResp = await Supabase.instance.client
+            .from('folders')
+            .select('id, name')
+            .eq('is_forum', true)
+            .inFilter('name', ['EXIS', 'BITS', 'TORQ', 'GENESIS', 'SWAS', 'exis', 'bits', 'torq', 'Genesis', 'SWAS', 'Genesis']); // Case insensitivity coverage
+        
+        final fbResp = await Supabase.instance.client.from('forum_budgets').select();
+        
+        List<Map<String, dynamic>> allocations = [];
+        for (var f in (forumsResp as List)) {
+          final n = f['name'].toString().toUpperCase();
+          if (['EXIS', 'BITS', 'TORQ', 'GENESIS', 'SWAS'].contains(n)) {
+            final fb = (fbResp as List).firstWhere((element) => element['execom_id'] == f['id'], orElse: () => null);
+            allocations.add({
+              'id': f['id'],
+              'name': n,
+              'allocated_amount': fb != null ? (fb['allocated_amount'] as num).toDouble() : 0.0,
+            });
+          }
+        }
+        _adminForumAllocations = allocations;
+      }
 
     } catch (e) {
       debugPrint('Error: $e');
@@ -503,6 +528,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
             : const [
                 Tab(icon: Icon(Icons.account_balance_wallet_outlined), text: 'Summary'),
                 Tab(icon: Icon(Icons.people_outline), text: 'Requests'),
+                Tab(icon: Icon(Icons.history), text: 'Ledger'),
                 Tab(icon: Icon(Icons.calendar_today_outlined), text: 'Events'),
               ],
         ),
@@ -544,6 +570,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
                   : [
                       _buildForumSummaryTab(context, perms),
                       _buildForumsTab(context, perms),
+                      _buildHistoryTab(perms),
                       _buildEventsTab(context),
                     ],
             ),
@@ -563,7 +590,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
   }
 
   Widget? _buildFAB(PermissionEngine perms) {
-    if (perms.isAtLeastTier2) {
+    if (perms.isAtLeastTier2 || perms.role >= AppRole.forumExeccom) {
       return FloatingActionButton(
         onPressed: () => _showNewTransactionSheet(context, false),
         backgroundColor: AppTheme.secondary,
@@ -581,8 +608,9 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
     final textSecondary = isDark ? Colors.white60 : Colors.grey[600];
     final cardBg = isDark ? const Color(0xFF1A2035) : Colors.white;
 
-    final remaining = _forumAllocation - _totalSpent;
-    final spentPercentage = _forumAllocation > 0 ? (_totalSpent / _forumAllocation) : 0;
+    final totalAvailableBudget = _forumAllocation + _totalApproved;
+    final remaining = totalAvailableBudget - _totalSpent;
+    final spentPercentage = totalAvailableBudget > 0 ? (_totalSpent / totalAvailableBudget) : 0;
     
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -600,7 +628,7 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildSummaryMini('Allocation', '₹${_forumAllocation.toStringAsFixed(0)}', textSecondary!),
+                    _buildSummaryMini('Total Budget', '₹${totalAvailableBudget.toStringAsFixed(0)}', textSecondary!),
                     _buildSummaryMini('Spent', '₹${_totalSpent.toStringAsFixed(0)}', Colors.redAccent),
                   ],
                 ),
@@ -927,9 +955,127 @@ class _BudgetOverviewScreenState extends State<BudgetOverviewScreen> with Single
             ..._ledgerEntries.take(5).map((e) => _buildLedgerItem(e)),
           
           const SizedBox(height: 32),
-          
+          _buildForumAllocationsSection(context),
           const SizedBox(height: 48),
           const SizedBox(height: 48),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForumAllocationsSection(BuildContext context) {
+    if (_adminForumAllocations.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Forum Budget Allocations', style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Text('Manage base budget limits for designated forums.', style: GoogleFonts.inter(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 16),
+        ..._adminForumAllocations.map((forum) {
+          final amt = forum['allocated_amount'] as double;
+          return GlassCard(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.account_balance, color: AppTheme.secondary, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      forum['name'],
+                      style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    Text(
+                      '₹${amt.toStringAsFixed(0)}',
+                      style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white70 : Colors.black87),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.edit, size: 18, color: AppTheme.secondary),
+                      onPressed: () => _showEditAllocationDialog(forum['id'], forum['name'], amt),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  void _showEditAllocationDialog(int folderId, String forumName, double currentAmt) {
+    final controller = TextEditingController(text: currentAmt.toStringAsFixed(0));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF161925) : Colors.white,
+        title: Text('Edit $forumName Allocation', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Update the base budget limit for $forumName.', style: GoogleFonts.inter(fontSize: 14, color: Colors.grey)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Allocation (₹)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final newLimit = double.tryParse(controller.text);
+              if (newLimit != null) {
+                try {
+                  final existing = await Supabase.instance.client.from('forum_budgets').select().eq('execom_id', folderId);
+                  if ((existing as List).isEmpty) {
+                    await Supabase.instance.client.from('forum_budgets').insert({
+                      'execom_id': folderId,
+                      'allocated_amount': newLimit,
+                      'start_date': DateTime.now().toIso8601String(),
+                      'end_date': DateTime.now().add(const Duration(days: 365)).toIso8601String()
+                    });
+                  } else {
+                    await Supabase.instance.client.from('forum_budgets').update({
+                      'allocated_amount': newLimit,
+                    }).eq('execom_id', folderId);
+                  }
+                  
+                  _loadBudget();
+                  if (mounted) Navigator.pop(ctx);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$forumName budget updated successfully')));
+                } catch (e) {
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+                }
+              }
+            },
+            child: const Text('Save'),
+          ),
         ],
       ),
     );
