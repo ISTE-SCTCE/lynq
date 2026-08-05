@@ -12,10 +12,7 @@ class UserModel {
   final DateTime? membershipDate;
   final String? forum;
   final DateTime? expiryDate;
-  final bool isPrimaryChairman;
   final bool isSudo;
-  final bool isBudgetActivated;
-  final Map<String, dynamic> permissions;
   final DateTime? lastSeen;
   final DateTime? createdAt;
   final String status;
@@ -35,10 +32,7 @@ class UserModel {
     this.membershipDate,
     this.forum,
     this.expiryDate,
-    this.isPrimaryChairman = false,
     this.isSudo = false,
-    this.isBudgetActivated = false,
-    this.permissions = const {},
     this.lastSeen,
     this.createdAt,
     this.status = 'active',
@@ -59,10 +53,7 @@ class UserModel {
     membershipDate: json['membership_date'] != null ? DateTime.parse(json['membership_date']) : null,
     forum: json['forum'] as String?,
     expiryDate: json['expiry_date'] != null ? DateTime.parse(json['expiry_date']) : null,
-    isPrimaryChairman: json['is_primary_chairman'] as bool? ?? false,
     isSudo: json['is_sudo'] as bool? ?? false,
-    isBudgetActivated: json['is_budget_activated'] as bool? ?? false,
-    permissions: (json['permissions'] as Map<String, dynamic>?) ?? {},
     lastSeen: json['last_seen'] != null ? DateTime.parse(json['last_seen']) : null,
     createdAt: json['created_at'] != null ? DateTime.parse(json['created_at']) : null,
     status: json['status'] as String? ?? 'active',
@@ -82,10 +73,7 @@ class UserModel {
     'membership_date': membershipDate?.toIso8601String().split('T')[0],
     'forum': forum,
     'expiry_date': expiryDate?.toIso8601String().split('T')[0],
-    'is_primary_chairman': isPrimaryChairman,
     'is_sudo': isSudo,
-    'is_budget_activated': isBudgetActivated,
-    'permissions': permissions,
     'status': status,
     'suspended_until': suspendedUntil?.toIso8601String(),
   };
@@ -104,8 +92,6 @@ class UserModel {
     String? forum,
     DateTime? expiryDate,
     bool? isSudo,
-    bool? isBudgetActivated,
-    Map<String, dynamic>? permissions,
     String? status,
     DateTime? suspendedUntil,
   }) => UserModel(
@@ -122,10 +108,7 @@ class UserModel {
     membershipDate: membershipDate ?? this.membershipDate,
     forum: forum ?? this.forum,
     expiryDate: expiryDate ?? this.expiryDate,
-    isPrimaryChairman: isPrimaryChairman,
     isSudo: isSudo ?? this.isSudo,
-    isBudgetActivated: isBudgetActivated ?? this.isBudgetActivated,
-    permissions: permissions ?? this.permissions,
     lastSeen: lastSeen,
     createdAt: createdAt,
     status: status ?? this.status,

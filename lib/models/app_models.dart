@@ -13,6 +13,7 @@ class EventModel {
   final String? posterUrl;
   final String? location;
   final List<String>? allowedRoles;
+  final int numDays;
 
   const EventModel({
     required this.id,
@@ -29,6 +30,7 @@ class EventModel {
     this.posterUrl,
     this.location,
     this.allowedRoles,
+    this.numDays = 1,
   });
 
   factory EventModel.fromJson(Map<String, dynamic> json) => EventModel(
@@ -46,6 +48,7 @@ class EventModel {
     posterUrl: json['poster_url'] as String?,
     location: json['location'] as String?,
     allowedRoles: (json['allowed_roles'] as List?)?.map((e) => e.toString()).toList(),
+    numDays: json['num_days'] as int? ?? 1,
   );
 
   Map<String, dynamic> toJson() => {
@@ -58,6 +61,7 @@ class EventModel {
     'member_price': memberPrice,
     'non_member_price': nonMemberPrice,
     'is_paid': isPaid,
+    'num_days': numDays,
   };
 }
 

@@ -33,6 +33,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
   bool _isLoading = false;
   bool _isPaid = false;
   List<File> _posterFiles = [];
+  int _numDays = 1;
 
   Future<void> _pickImages() async {
     final picker = ImagePicker();
@@ -94,6 +95,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'poster_url': uploadedPosterUrls.isNotEmpty ? uploadedPosterUrls.first : null,
         'posters': uploadedPosterUrls,
         'perks': _perks,
+        'num_days': _numDays,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event created'), backgroundColor: Colors.green));
@@ -246,6 +248,39 @@ class _EventFormScreenState extends State<EventFormScreen> {
               ),
               const SizedBox(height: 16),
               CustomTextField(label: 'Location', controller: _locationCtrl, prefixIcon: Icons.location_on_outlined),
+              const SizedBox(height: 16),
+              // ── Number of Days ──────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.date_range_outlined, size: 18, color: Colors.grey),
+                    const SizedBox(width: 12),
+                    Text('Number of Days', style: GoogleFonts.inter(fontWeight: FontWeight.w500)),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, size: 22),
+                      onPressed: () => setState(() { if (_numDays > 1) _numDays--; }),
+                    ),
+                    SizedBox(
+                      width: 32,
+                      child: Text(
+                        '$_numDays',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, size: 22),
+                      onPressed: () => setState(() { if (_numDays < 30) _numDays++; }),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 16),
               Text('Allowed Roles', style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: Colors.grey)),
               const SizedBox(height: 8),
