@@ -38,6 +38,7 @@ dependencies:
   share_plus: ^10.1.2
 
   app_links: any
+  shared_preferences: ^2.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/providers/auth_provider.dart';
 import '../../core/theme.dart';
 
 class EventListScreen extends ConsumerStatefulWidget {
@@ -27,13 +28,34 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
   Future<void> _loadEvents() async {
     setState(() => _isLoading = true);
     try {
+      final authState = ref.read(authProvider);
+      final String userRole = authState.role;
+
+      // Map 'user' (guest / not-iste member) → 'restricted' for event visibility,
+      // since allowed_roles uses 'restricted' as the lowest member-facing tier.
+      final String effectiveRole =
+          (userRole.isEmpty || userRole == 'user') ? 'restricted' : userRole;
+
+      // Fetch all events and filter client-side so we can also show events that
+      // have no allowed_roles restriction at all (null / empty array = visible to everyone).
       final data = await _supabase
           .from('events')
           .select()
           .order('date', ascending: true);
+
+      final all = (data as List).cast<Map<String, dynamic>>();
+
+      final visible = all.where((e) {
+        final roles = (e['allowed_roles'] as List?)?.cast<String>() ?? [];
+        // No restriction → show to everyone
+        if (roles.isEmpty) return true;
+        // Show if the event is open to this user's effective role
+        return roles.contains(effectiveRole);
+      }).toList();
+
       if (mounted) {
         setState(() {
-          _events = (data as List).cast<Map<String, dynamic>>();
+          _events = visible;
           _isLoading = false;
         });
       }
@@ -187,7 +209,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                         : ListView.builder(
                             physics: const BouncingScrollPhysics(),
                             itemCount: _eventsForSelectedDate.length,
-                            itemBuilder: (ctx, i) => _buildScheduleCard(_eventsForSelectedDate[i]),
+                            itemBuilder: (ctx, i) => _buildScheduleCard(_eventsForSelectedDate[i], ref.watch(authProvider).membershipId.isNotEmpty),
                           ),
               ),
             ],
@@ -274,7 +296,12 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
     );
   }
 
-  Widget _buildScheduleCard(Map<String, dynamic> event) {
+  Widget _buildScheduleCard(Map<String, dynamic> event, bool isMember) {
+    final location = event['location'] as String? ?? event['venue'] as String? ?? 'Seminar Hall';
+    final isPaid = event['is_paid'] == true;
+    final price = isPaid ? (isMember ? event['member_price'] : event['non_member_price']) : 0;
+    final priceStr = isPaid ? '₹$price' : 'Free';
+
     return GestureDetector(
       onTap: () => context.push('/events/${event['id']}'),
       child: Container(
@@ -327,7 +354,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      event['location'] as String? ?? event['venue'] as String? ?? 'Seminar Hall',
+                      '$location • $priceStr',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: Colors.white.withOpacity(0.75),

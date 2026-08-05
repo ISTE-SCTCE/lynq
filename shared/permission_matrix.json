@@ -1,0 +1,149 @@
+{
+  "role_tests": [
+    { "input": "chairman", "expected": "chairman" },
+    { "input": "chair", "expected": "chairman" },
+    { "input": "vice-chair", "expected": "viceChairman" },
+    { "input": "Vice Chairman", "expected": "viceChairman" },
+    { "input": "BITS Chairman", "expected": "forumExeccom" },
+    { "input": "EXIS Chairman", "expected": "forumExeccom" },
+    { "input": "GENESIS Chair", "expected": "forumExeccom" },
+    { "input": "SWAS Chair", "expected": "forumExeccom" },
+    { "input": "SWAS Vice Chair", "expected": "forumExeccom" },
+    { "input": "Design Chair", "expected": "coreExeccom" },
+    { "input": "Session Chair", "expected": "member" },
+    { "input": "webmaster", "expected": "coreExeccom" },
+    { "input": "technical head", "expected": "coreExeccom" },
+    { "input": "panel", "expected": "panel" },
+    { "input": "restricted", "expected": "restricted" },
+    { "input": "member", "expected": "member" }
+  ],
+  "permission_tests": [
+    {
+      "description": "Suspended Chairman has no permissions",
+      "user": {
+        "id": "u1",
+        "name": "Suspended Chair",
+        "email": "chair@test.com",
+        "role": "chair",
+        "status": "suspended",
+        "is_sudo": false
+      },
+      "expected": {
+        "isSuspended": true,
+        "canAddMembers": false,
+        "canRemoveMembers": false,
+        "canEditMembers": false,
+        "canAssignRoles": false,
+        "canManageFolders": false,
+        "canManageGlobalPermissions": false,
+        "canManageFolderPermissions": false,
+        "canManagePermissions": false,
+        "canCreateEvents": false,
+        "canReadReports": false,
+        "canUploadReports": false,
+        "canViewTotalBudget": false,
+        "canAccessScopedBudget": false,
+        "canViewMembers": false,
+        "canRequestBudget": false,
+        "canManageBudget": false,
+        "canViewInternalAnnouncements": false,
+        "canManageAnnouncements": false,
+        "canOverride": false,
+        "canAccessChat": false,
+        "canApproveBudget": false
+      }
+    },
+    {
+      "description": "Active Chairman has all permissions",
+      "user": {
+        "id": "u2",
+        "name": "Active Chair",
+        "email": "chair@test.com",
+        "role": "chair",
+        "status": "active",
+        "is_sudo": false
+      },
+      "expected": {
+        "isSuspended": false,
+        "canAddMembers": true,
+        "canRemoveMembers": true,
+        "canEditMembers": true,
+        "canAssignRoles": true,
+        "canManageFolders": true,
+        "canManageGlobalPermissions": true,
+        "canManageFolderPermissions": true,
+        "canManagePermissions": true,
+        "canCreateEvents": true,
+        "canReadReports": true,
+        "canUploadReports": true,
+        "canViewTotalBudget": true,
+        "canAccessScopedBudget": true,
+        "canViewMembers": true,
+        "canRequestBudget": true,
+        "canManageBudget": true,
+        "canViewInternalAnnouncements": true,
+        "canManageAnnouncements": true,
+        "canOverride": true,
+        "canAccessChat": true,
+        "canApproveBudget": true
+      }
+    },
+    {
+      "description": "Core Sudo has Tier 1 permissions",
+      "user": {
+        "id": "u3",
+        "name": "Core Sudo",
+        "email": "core@test.com",
+        "role": "webmaster",
+        "status": "active",
+        "is_sudo": true
+      },
+      "expected": {
+        "isSuspended": false,
+        "isEffectivelyTier1": true,
+        "canApproveBudget": true
+      }
+    }
+  ],
+  "folder_permission_tests": [
+    {
+      "description": "manageAll bypasses restricted folder permission",
+      "user": {
+        "id": "u4",
+        "name": "Forum Execom",
+        "email": "forum@test.com",
+        "role": "SWAS Chair",
+        "status": "active",
+        "is_sudo": false
+      },
+      "memberships": [
+        { "folder_id": 1, "folder_role": "member" }
+      ],
+      "permissions": [
+        { "folder_id": 1, "feature": "upload_reports", "allowed": false },
+        { "folder_id": 1, "feature": "manage_all", "allowed": true }
+      ],
+      "checks": [
+        { "feature": "upload_reports", "folder_id": 1, "expected": true }
+      ]
+    },
+    {
+      "description": "Folder role of head/chair can manage folder members",
+      "user": {
+        "id": "u5",
+        "name": "Forum Lead",
+        "email": "forum@test.com",
+        "role": "SWAS Chair",
+        "status": "active",
+        "is_sudo": false
+      },
+      "memberships": [
+        { "folder_id": 1, "folder_role": "chair" }
+      ],
+      "permissions": [],
+      "checks": [
+        { "check_type": "canManageMembersInFolder", "folder_id": 1, "expected": true }
+      ]
+    }
+  ]
+}

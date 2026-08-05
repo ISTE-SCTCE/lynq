@@ -49,8 +49,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             .order('date', ascending: true),
         _supabase
             .from('announcements')
-            .select('id, title, description, content, status, created_at')
-            .eq('status', 'active')
+            .select('id, title, content, visibility, created_at')
             .order('created_at', ascending: false),
         _supabase
             .from('attendance')
@@ -310,7 +309,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: isAnnouncement
               ? _buildPromoCard(
                   title: e['title'] ?? 'Announcement',
-                  subtitle: e['description'] ?? 'Updates & Info',
+                  subtitle: e['content'] ?? 'Updates & Info',
                   backgroundColor: s['bg'] as Color,
                   textColor: s['text'] as Color,
                   btnLabel: 'View Details',

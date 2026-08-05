@@ -26,6 +26,8 @@ class _QrScannerScreenState extends State<QrScannerScreen>
   _ScanResult? _lastResult;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnim;
+  int _numDays = 1;
+  int _currentDay = 1;
 
   static const _terracotta = Color(0xFFD97D55);
   static const _cream = Color(0xFFF4E9D7);
@@ -45,6 +47,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
       ..repeat(reverse: true);
     _pulseAnim = Tween<double>(begin: 0.6, end: 1.0).animate(
         CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+    _fetchEventNumDays();
   }
 
   @override
@@ -52,6 +55,50 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     _scannerController?.dispose();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  // ── Fetch num_days for event-specific scan mode ────────────────────────
+  Future<void> _fetchEventNumDays() async {
+    if (widget.eventId == null) return;
+    try {
+      final data = await _supabase
+          .from('events')
+          .select('num_days')
+          .eq('id', widget.eventId!)
+          .maybeSingle();
+      if (data != null && mounted) {
+        final days = (data['num_days'] as int?) ?? 1;
+        setState(() => _numDays = days);
+        if (days > 1) _promptDaySelection();
+      }
+    } catch (_) {}
+  }
+
+  void _promptDaySelection() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C2E),
+        title: Text('Select Scan Day', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(_numDays, (i) {
+            final day = i + 1;
+            return RadioListTile<int>(
+              value: day,
+              groupValue: _currentDay,
+              title: Text('Day $day', style: GoogleFonts.inter(color: Colors.white)),
+              activeColor: _sage,
+              onChanged: (val) {
+                setState(() => _currentDay = val!);
+                Navigator.pop(ctx);
+              },
+            );
+          }),
+        ),
+      ),
+    );
   }
 
   Future<void> _processBarcode(BarcodeCapture capture) async {
@@ -87,7 +134,9 @@ class _QrScannerScreenState extends State<QrScannerScreen>
         return;
       }
 
-      // Validate token is not expired (30-second window)
+      // Client-side ts check: advisory early rejection of obviously-stale QRs.
+      // This is NOT a security boundary — the DB expires_at check is the real guard.
+      // A malicious client supplying a fake ts will still fail the DB query below.
       final tokenTime = DateTime.fromMillisecondsSinceEpoch(ts);
       final age = DateTime.now().difference(tokenTime);
       if (age.inSeconds > 30) {
@@ -158,31 +207,47 @@ class _QrScannerScreenState extends State<QrScannerScreen>
           .maybeSingle();
 
       if (widget.eventId != null) {
-        // Log attendance for specific event
-        await _supabase.from('attendance').insert({
-          'event_id': widget.eventId,
-          'user_id': userId,
-          'scanned_by': auth.authUser?.id,
-          'qr_token_id': tokenId,
-        });
+        // Use atomic RPC to prevent race condition between simultaneous scans:
+        // mark_attendance_atomic does SELECT FOR UPDATE + INSERT in one transaction.
+        final rpcResult = await _supabase.rpc('mark_attendance_atomic', params: {
+          'p_event_id':   widget.eventId,
+          'p_user_id':    userId,
+          'p_token_id':   tokenId,
+          'p_scanned_by': auth.authUser?.id,
+          'p_day_number': _currentDay,
+        }) as Map<String, dynamic>;
 
-        // Mark token used
-        await _supabase
-            .from('qr_tokens')
-            .update({'is_used': true})
-            .eq('id', tokenId);
+        final bool rpcSuccess = rpcResult['success'] == true;
+        final String? rpcError = rpcResult['error'] as String?;
 
         HapticFeedback.lightImpact();
-        setState(() {
-          _lastResult = _ScanResult(
-            success: true,
-            message: 'Attendance marked!',
-            userName: userRow?['name'] as String?,
-            rollNumber: userRow?['roll_number'] as String?,
-            branch: userRow?['branch'] as String?,
-          );
-          _isProcessing = false;
-        });
+        if (rpcSuccess) {
+          setState(() {
+            _lastResult = _ScanResult(
+              success: true,
+              message: 'Attendance marked!',
+              userName: userRow?['name'] as String?,
+              rollNumber: userRow?['roll_number'] as String?,
+              branch: userRow?['branch'] as String?,
+            );
+            _isProcessing = false;
+          });
+        } else {
+          final friendlyMsg = rpcError == 'already_attended'
+              ? 'Already marked: ${userRow?['name'] ?? userId}'
+              : rpcError == 'token_invalid_or_race'
+                  ? 'Token already used or expired (race condition prevented)'
+                  : 'Failed to mark attendance: $rpcError';
+          HapticFeedback.heavyImpact();
+          setState(() {
+            _lastResult = _ScanResult(
+              success: false,
+              message: friendlyMsg,
+              userName: userRow?['name'] as String?,
+            );
+            _isProcessing = false;
+          });
+        }
 
         // Auto-reset after 3 seconds
         await Future.delayed(const Duration(seconds: 3));
@@ -225,7 +290,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     // Fetch active events (newest first)
     final eventsRes = await _supabase
         .from('events')
-        .select('id, title, date, type')
+        .select('id, title, date, type, num_days')
         .order('date', ascending: false)
         .limit(20);
 
@@ -303,38 +368,76 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                           return InkWell(
                             onTap: () async {
                               Navigator.pop(ctx);
-                              
-                              // Check duplicate
-                              final existing = await _supabase
-                                  .from('attendance')
-                                  .select('id')
-                                  .eq('event_id', event['id'])
-                                  .eq('user_id', userId)
-                                  .limit(1);
 
-                              if ((existing as List).isNotEmpty) {
-                                setState(() {
-                                  _lastResult = _ScanResult(
-                                    success: false,
-                                    message: 'Already marked for ${event['title']}',
-                                    userName: userRow?['name'] as String?,
-                                  );
-                                });
-                              } else {
-                                // Insert attendance
-                                await _supabase.from('attendance').insert({
-                                  'event_id': event['id'],
-                                  'user_id': userId,
-                                  'scanned_by': auth.authUser?.id,
-                                  'qr_token_id': tokenId,
-                                });
+                              // For multi-day events, let the scanner pick which day
+                              int scanDay = 1;
+                              final evtNumDays = (event['num_days'] as int?) ?? 1;
+                              if (evtNumDays > 1 && mounted) {
+                                final picked = await showDialog<int>(
+                                  context: context,
+                                  builder: (dCtx) => AlertDialog(
+                                    backgroundColor: const Color(0xFF1C1C2E),
+                                    title: Text('Select Day', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: List.generate(evtNumDays, (i) => ListTile(
+                                        title: Text('Day ${i + 1}', style: GoogleFonts.inter(color: Colors.white)),
+                                        onTap: () => Navigator.pop(dCtx, i + 1),
+                                      )),
+                                    ),
+                                  ),
+                                );
+                                if (picked == null) return;
+                                scanDay = picked;
+                              }
 
-                                // Mark token as used
-                                await _supabase
-                                    .from('qr_tokens')
-                                    .update({'is_used': true})
-                                    .eq('id', tokenId);
+                              // Eligibility check: verify the scanned member's role
+                              // is in this event's allowed_roles before marking attendance.
+                              final eventDetail = await _supabase
+                                  .from('events')
+                                  .select('allowed_roles')
+                                  .eq('id', event['id'])
+                                  .maybeSingle();
 
+                              if (eventDetail != null) {
+                                final allowedRoles = eventDetail['allowed_roles'] as List?;
+                                if (allowedRoles != null && allowedRoles.isNotEmpty) {
+                                  // Fetch the scanned member's role
+                                  final memberRole = await _supabase
+                                      .from('users')
+                                      .select('role')
+                                      .eq('id', userId)
+                                      .maybeSingle();
+                                  final String scannedUserRole =
+                                      memberRole?['role'] as String? ?? 'user';
+                                  if (!allowedRoles.map((r) => r.toString()).contains(scannedUserRole)) {
+                                    setState(() {
+                                      _lastResult = _ScanResult(
+                                        success: false,
+                                        message: '${userRow?['name'] ?? 'Member'} is not eligible for ${event['title']} '
+                                            '(role: $scannedUserRole)',
+                                        userName: userRow?['name'] as String?,
+                                      );
+                                    });
+                                    await Future.delayed(const Duration(seconds: 3));
+                                    if (mounted) setState(() => _lastResult = null);
+                                    return;
+                                  }
+                                }
+                              }
+
+                              final rpcResult = await _supabase.rpc('mark_attendance_atomic', params: {
+                                'p_event_id':   event['id'],
+                                'p_user_id':    userId,
+                                'p_token_id':   tokenId,
+                                'p_scanned_by': auth.authUser?.id,
+                                'p_day_number': scanDay,
+                              }) as Map<String, dynamic>;
+
+                              final bool rpcSuccess = rpcResult['success'] == true;
+                              final String? rpcError = rpcResult['error'] as String?;
+
+                              if (rpcSuccess) {
                                 HapticFeedback.lightImpact();
                                 setState(() {
                                   _lastResult = _ScanResult(
@@ -345,8 +448,21 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                                     branch: userRow?['branch'] as String?,
                                   );
                                 });
+                              } else {
+                                final friendlyMsg = rpcError == 'already_attended'
+                                    ? 'Already marked for ${event['title']}'
+                                    : rpcError == 'token_invalid_or_race'
+                                        ? 'Token already used (race condition prevented)'
+                                        : 'Failed: $rpcError';
+                                setState(() {
+                                  _lastResult = _ScanResult(
+                                    success: false,
+                                    message: friendlyMsg,
+                                    userName: userRow?['name'] as String?,
+                                  );
+                                });
                               }
-                              
+
                               // Auto-reset
                               await Future.delayed(const Duration(seconds: 3));
                               if (mounted) setState(() => _lastResult = null);
@@ -469,7 +585,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                     ),
                     child: Text(
                       widget.eventId != null
-                          ? 'Scanning for Event #${widget.eventId}'
+                          ? 'Scanning for Event #${widget.eventId}${_numDays > 1 ? " · Day $_currentDay" : ""}'
                           : 'QR Attendance Scanner',
                       style: GoogleFonts.spaceGrotesk(
                           color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14),
@@ -478,6 +594,24 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                 ),
               ),
             ),
+            // Day switcher chip (multi-day events only)
+            if (_numDays > 1) ...[              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _promptDaySelection,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _sage.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _sage.withValues(alpha: 0.5)),
+                  ),
+                  child: Text(
+                    'Day $_currentDay',
+                    style: GoogleFonts.spaceGrotesk(color: _sage, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(width: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),

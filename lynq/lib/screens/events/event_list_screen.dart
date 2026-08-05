@@ -12,6 +12,7 @@ import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/liquid_glass_nav_bar.dart';
 import 'certificate_issuance_screen.dart';
+import '../attendance/attendance_report_screen.dart';
 import 'package:provider/provider.dart';
 
 class EventListScreen extends StatefulWidget {
@@ -311,7 +312,7 @@ class _EventListScreenState extends State<EventListScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
       itemCount: selectedEvents.length,
       itemBuilder: (context, index) {
         final event = selectedEvents[index];
@@ -442,6 +443,36 @@ class _EventListScreenState extends State<EventListScreen> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                // Attendance Report button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AttendanceReportScreen(
+                          eventId:    event.id,
+                          eventTitle: event.title,
+                          numDays:    event.numDays,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.people_alt_outlined, size: 16),
+                    label: Text(
+                      event.numDays > 1
+                          ? 'Attendance Report (${event.numDays} days)'
+                          : 'Attendance Report',
+                      style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.blueAccent.shade100,
+                      side: BorderSide(color: Colors.blueAccent.withValues(alpha: 0.35)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
                 ),
               ],
             ),

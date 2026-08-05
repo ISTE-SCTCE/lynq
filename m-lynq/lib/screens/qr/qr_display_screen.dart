@@ -86,8 +86,20 @@ class _QrDisplayScreenState extends ConsumerState<QrDisplayScreen>
       final now = DateTime.now();
       final expiresAt = now.add(const Duration(seconds: 30));
 
-      // Create a unique token hash: SHA256(userId + timestamp + secret)
-      final tokenPayload = '$userId:${now.millisecondsSinceEpoch}:ISTE_QR_SECRET';
+      // NOTE: Token generation still happens client-side.
+      // The secret is injected at build-time via --dart-define=QR_SIGNING_SECRET=<value>
+      // so it is NOT present as a plain string literal in the compiled binary.
+      // Full mitigation (server-side generation via Supabase RPC) is tracked as a follow-up.
+      //
+      // Build command example:
+      //   flutter build apk --dart-define=QR_SIGNING_SECRET=<your_secret_here>
+      // Dev fallback (non-production only):
+      const String _qrSigningSecret = String.fromEnvironment(
+        'QR_SIGNING_SECRET',
+        defaultValue: 'ISTE_QR_SECRET_DEV',
+      );
+
+      final tokenPayload = '$userId:${now.millisecondsSinceEpoch}:$_qrSigningSecret';
       final tokenHash = sha256
           .convert(utf8.encode(tokenPayload))
           .toString()

@@ -40,10 +40,14 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     _loadEvent();
   }
 
+  // Whether the current user's role permits viewing this event.
+  // null means still loading; true means allowed; false means blocked.
+  bool? _isAllowed;
+
   Future<void> _loadEvent() async {
     final auth = ref.read(authProvider);
     final futures = await Future.wait([
-      _supabase.from('events').select().eq('id', widget.eventId).single(),
+      _supabase.from('events').select().eq('id', widget.eventId).maybeSingle(),
       _supabase.from('attendance')
           .select('id')
           .eq('event_id', widget.eventId)
@@ -51,9 +55,24 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           .limit(1),
     ]);
     if (mounted) {
+      final eventData = futures[0] as Map<String, dynamic>?;
+      bool allowed = true;
+
+      if (eventData != null) {
+        final allowedRoles = eventData['allowed_roles'];
+        if (allowedRoles != null && (allowedRoles as List).isNotEmpty) {
+          final userRole = auth.role;
+          allowed = (allowedRoles as List<dynamic>)
+              .map((r) => r.toString())
+              .contains(userRole);
+        }
+        // If allowed_roles is null or empty, treat as visible to all (backwards compat)
+      }
+
       setState(() {
-        _event = futures[0] as Map<String, dynamic>;
+        _event = eventData;
         _isAttended = (futures[1] as List).isNotEmpty;
+        _isAllowed = allowed;
         _isLoading = false;
       });
     }
@@ -70,6 +89,58 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
     final event = _event;
     if (event == null) return const Scaffold(backgroundColor: Color(0xFF141414));
+
+    // Role-access guard: if the member's role isn't in allowed_roles, show denied state
+    if (_isAllowed == false) {
+      return Scaffold(
+        backgroundColor: _bg,
+        appBar: AppBar(
+          backgroundColor: _bg,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.04),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Icon(Icons.lock_outline_rounded, size: 48, color: Colors.white38),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Event Not Available',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 22, fontWeight: FontWeight.bold, color: _cream),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'This event isn\'t available for your membership tier. '
+                  'Contact your execom if you believe this is a mistake.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(fontSize: 14, color: Colors.white54, height: 1.6),
+                ),
+                const SizedBox(height: 32),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Go Back',
+                      style: GoogleFonts.inter(color: _terracotta, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     final date = DateTime.tryParse(event['date'] as String? ?? '');
     final daysLeft = date?.difference(DateTime.now()).inDays;
@@ -197,7 +268,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                               final price = isMember ? event['member_price'] : event['non_member_price'];
                               return _infoCard(
                                 Icons.currency_rupee, 
-                                isMember ? 'Member Price' : 'Non-Member Price',
+                                'Price',
                                 '₹$price', 
                                 Colors.greenAccent
                               );

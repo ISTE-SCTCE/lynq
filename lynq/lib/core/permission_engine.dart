@@ -17,41 +17,50 @@ class PermissionEngine {
 
   AppRole get role => AppRole.fromString(user.role);
 
+  /// Check user suspension status
+  bool get isSuspended {
+    if (user.status == 'suspended') return true;
+    final until = user.suspendedUntil;
+    if (until != null && until.isAfter(DateTime.now())) return true;
+    return false;
+  }
+
   // ── Tier-based getters ──
 
-  bool get isTier1 => role == AppRole.chairman || role == AppRole.viceChairman;
-  bool get isTier2 => role == AppRole.coreExeccom;
-  bool get isTier3 => role == AppRole.forumExeccom;
-  bool get isTier4 => role == AppRole.panel;
-  bool get isTier5 => role == AppRole.restricted;
-  bool get isTier6 => role == AppRole.member;
+  bool get isTier1 => !isSuspended && (role == AppRole.chairman || role == AppRole.viceChairman);
+  bool get isTier2 => !isSuspended && role == AppRole.coreExeccom;
+  bool get isTier3 => !isSuspended && role == AppRole.forumExeccom;
+  bool get isTier4 => !isSuspended && role == AppRole.panel;
+  bool get isTier5 => !isSuspended && role == AppRole.restricted;
+  bool get isTier6 => !isSuspended && role == AppRole.member;
 
-  bool get isAtLeastTier1 => role >= AppRole.viceChairman;
-  bool get isAtLeastTier2 => role >= AppRole.coreExeccom;
-  bool get isAtLeastTier3 => role >= AppRole.forumExeccom;
-  bool get isAtLeastTier4 => role >= AppRole.panel;
+  bool get isAtLeastTier1 => !isSuspended && role >= AppRole.viceChairman;
+  bool get isAtLeastTier2 => !isSuspended && role >= AppRole.coreExeccom;
+  bool get isAtLeastTier3 => !isSuspended && role >= AppRole.forumExeccom;
+  bool get isAtLeastTier4 => !isSuspended && role >= AppRole.panel;
 
   /// Effective Tier 1 (includes Tier 2 with Chairman's Sudo grant)
-  bool get isEffectivelyTier1 => isTier1 || (isTier2 && user.isSudo);
+  bool get isEffectivelyTier1 => !isSuspended && (isTier1 || (isTier2 && user.isSudo));
 
   // ── Action permissions ──
 
-  bool get canAddMembers => _isCommitteeLead;
-  bool get canRemoveMembers => isAtLeastTier1;
-  bool get canEditMembers => isTier1;
-  bool get canAssignRoles => isAtLeastTier1;
-  bool get canManageFolders => isAtLeastTier1;
-  bool get canManageGlobalPermissions => role == AppRole.chairman;
-  bool get canManageFolderPermissions => isAtLeastTier1;
-  bool get canManagePermissions => canManageGlobalPermissions || canManageFolderPermissions;
+  bool get canAddMembers => !isSuspended && _isCommitteeLead;
+  bool get canRemoveMembers => !isSuspended && isAtLeastTier1;
+  bool get canEditMembers => !isSuspended && isTier1;
+  bool get canAssignRoles => !isSuspended && isAtLeastTier1;
+  bool get canManageFolders => !isSuspended && isAtLeastTier1;
+  bool get canManageGlobalPermissions => !isSuspended && role == AppRole.chairman;
+  bool get canManageFolderPermissions => !isSuspended && isAtLeastTier1;
+  bool get canManagePermissions => !isSuspended && (canManageGlobalPermissions || canManageFolderPermissions);
 
   /// Committee leadership: Tier 1 & 2 are always leads.
   /// Forum Execom (Tier 3) only if they hold Chair or Secretary position.
   bool get _isCommitteeLead {
+    if (isSuspended) return false;
     if (isAtLeastTier2) return true; // Covers Tier 1 + Tier 2
     if (isTier3) {
       final p = user.post?.toLowerCase() ?? '';
-      return p.contains('chair') || p.contains('secretary');
+      return p == 'chair' || p == 'chairman' || p == 'secretary';
     }
     return false;
   }
@@ -59,6 +68,7 @@ class PermissionEngine {
   /// Top 4 roles with full administrative and budget authority:
   /// Chairman, Vice Chairman, Secretary, Treasurer.
   bool get _isTop4 {
+    if (isSuspended) return false;
     if (isTier1) return true;
     if (isTier2) {
       final p = user.post?.toLowerCase() ?? '';
@@ -69,16 +79,22 @@ class PermissionEngine {
 
   /// Can manage members within a specific folder/forum
   bool canManageMembersInFolder(int folderId) {
+    if (isSuspended) return false;
     if (isAtLeastTier1) return true;
     // Core members assigned to a folder can manage its members
     if (isAtLeastTier2 && isMemberOfFolder(folderId)) return true;
-    // Forum Chairs/Heads can manage their own members
+    
+    // Wire up manageAll bypass
+    if (canDoInFolder(folderId, FolderFeature.manageAll)) return true;
+
+    // Forum Chairs/Heads can manage their own members (exact folder-role match)
     final fRole = folderRoleIn(folderId)?.toLowerCase() ?? '';
-    return fRole.contains('chair') || fRole.contains('head');
+    return fRole == 'chair' || fRole == 'head';
   }
 
   /// Is a specific feature allowed globally (folder_id: 0)
   bool isFeatureEnabledGlobally(String feature) {
+    if (isSuspended) return false;
     final perms = folderPermissions[0] ?? [];
     final perm = perms.where((p) => p.feature == feature).firstOrNull;
     return perm?.allowed ?? false;
@@ -87,35 +103,36 @@ class PermissionEngine {
   // ── Mandated Permissions ──
 
   /// 1. Event creation privileges restricted exclusively to Tier 3 and above.
-  bool get canCreateEvents => isAtLeastTier3;
+  bool get canCreateEvents => !isSuspended && isAtLeastTier3;
 
   /// 2. Report viewing access is limited to Tier 2 and all tiers above.
-  bool get canReadReports => isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewReports));
+  bool get canReadReports => !isSuspended && (isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewReports)));
 
-  bool get canUploadReports => isAtLeastTier4;
+  bool get canUploadReports => !isSuspended && isAtLeastTier4;
 
   /// 5. Full organizational budget viewing access is restricted to Tier 2 and above.
-  bool get canViewTotalBudget => isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewTotalBudget));
+  bool get canViewTotalBudget => !isSuspended && (isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewTotalBudget)));
 
   /// 6. Tier 3 (Forum-Execom) may view their forum budget. No activation gate.
-  bool get canAccessScopedBudget => isAtLeastTier3;
+  bool get canAccessScopedBudget => !isSuspended && isAtLeastTier3;
 
   /// Anyone EXCEPT restricted members can view the org member list (basic details only).
-  bool get canViewMembers => role != AppRole.restricted;
+  bool get canViewMembers => !isSuspended && role != AppRole.restricted;
 
   // ── Legacy/Other Access ──
-  bool get isPanel => isTier4;
-  bool get canRequestBudget => isAtLeastTier3;
-  bool get canManageBudget => _isTop4;
+  bool get isPanel => !isSuspended && isTier4;
+  bool get canRequestBudget => !isSuspended && isAtLeastTier3;
+  bool get canManageBudget => !isSuspended && _isTop4;
 
-  bool get canViewInternalAnnouncements => isAtLeastTier3;
-  bool get canManageAnnouncements => isAtLeastTier2;
-  bool get canOverride => role == AppRole.chairman;
-  bool get canAccessChat => isAtLeastTier4;
+  bool get canViewInternalAnnouncements => !isSuspended && isAtLeastTier3;
+  bool get canManageAnnouncements => !isSuspended && isAtLeastTier2;
+  bool get canOverride => !isSuspended && role == AppRole.chairman;
+  bool get canAccessChat => !isSuspended && isAtLeastTier4;
 
   /// Budget approve/reject: only effectively Tier 1
   /// or Tier 2 with specific posts (Treasurer, Sub-Treasurer)
   bool get canApproveBudget {
+    if (isSuspended) return false;
     if (isEffectivelyTier1) return true;
     if (isTier2) return BudgetAuthorityPosts.hasBudgetAuthority(user.post);
     return false;
@@ -125,10 +142,11 @@ class PermissionEngine {
 
   /// Is this user a member of a specific folder?
   bool isMemberOfFolder(int folderId) =>
-      userFolderMemberships.any((m) => m.folderId == folderId);
+      !isSuspended && userFolderMemberships.any((m) => m.folderId == folderId);
 
   /// Get the user's role within a folder
   String? folderRoleIn(int folderId) {
+    if (isSuspended) return null;
     final membership = userFolderMemberships
         .where((m) => m.folderId == folderId)
         .firstOrNull;
@@ -137,15 +155,24 @@ class PermissionEngine {
 
   /// Check if a folder feature is allowed for this user
   bool canDoInFolder(int folderId, String feature) {
+    if (isSuspended) return false;
     // Effective Tier 1 can do everything in any folder
     if (isEffectivelyTier1) return true;
 
     // Check folder-specific permission toggle
     final perms = folderPermissions[folderId] ?? [];
+
+    // If checking a regular feature, see if they have global manageAll allowed
+    if (feature != FolderFeature.manageAll) {
+      final manageAllPerm = perms.where((p) => p.feature == FolderFeature.manageAll).firstOrNull;
+      if (manageAllPerm?.allowed ?? false) {
+        return true;
+      }
+    }
+
     final perm = perms.where((p) => p.feature == feature).firstOrNull;
     
-    // If not a member, they can only see if it's publicly allowed for their role
-    // Core members and above default to true everywhere if not explicitly restricted
+    // Option A: Default-allow inside folder for Tier 2/3 if not explicitly restricted
     if (isAtLeastTier2) {
       if (perm != null) return perm.allowed;
       return true; 
@@ -153,7 +180,6 @@ class PermissionEngine {
 
     if (!isMemberOfFolder(folderId)) return false;
 
-    // Forum Execcom (Tier 3) default to true in their own folder if not explicitly restricted
     if (isAtLeastTier3) {
       if (perm != null) return perm.allowed;
       return true;
@@ -164,17 +190,21 @@ class PermissionEngine {
 
   /// Can create events in a specific folder
   bool canCreateEventInFolder(int folderId) =>
-      canCreateEvents && canDoInFolder(folderId, FolderFeature.createEvents);
+      !isSuspended && canCreateEvents && canDoInFolder(folderId, FolderFeature.createEvents);
 
   /// Can upload reports in a specific folder
   bool canUploadReportInFolder(int folderId) =>
-      canUploadReports && canDoInFolder(folderId, FolderFeature.uploadReports);
+      !isSuspended && canUploadReports && canDoInFolder(folderId, FolderFeature.uploadReports);
 
   /// Can view budget in a specific folder
   bool canViewBudgetInFolder(int folderId) =>
-      canAccessScopedBudget && canDoInFolder(folderId, FolderFeature.viewBudget);
+      !isSuspended && canAccessScopedBudget && canDoInFolder(folderId, FolderFeature.viewBudget);
+
+  /// Can request budget in a specific folder (wired up)
+  bool canRequestBudgetInFolder(int folderId) =>
+      !isSuspended && canRequestBudget && canDoInFolder(folderId, FolderFeature.requestBudget);
 
   /// Get list of folder IDs this user belongs to
   List<int> get userFolderIds =>
-      userFolderMemberships.map((m) => m.folderId).toList();
+      isSuspended ? [] : userFolderMemberships.map((m) => m.folderId).toList();
 }

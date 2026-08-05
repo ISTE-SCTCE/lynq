@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 
 enum AuthStep {
   emailEntry,
+  isteOtpVerify,      // NEW: OTP gate before first-time ISTE password creation
   istePasswordCreate,
   isteLogin,
   guestRegistration,
@@ -30,12 +31,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
   // Controllers
   final _emailCtrl = TextEditingController();
-  final _otpCtrl = TextEditingController();
+  final _otpCtrl   = TextEditingController();
   final _phoneCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
+  final _nameCtrl  = TextEditingController();
   final _regNoCtrl = TextEditingController();
   final _collegeCtrl = TextEditingController();
-  final _isteIdCtrl = TextEditingController();
+  final _isteIdCtrl  = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
   bool _isLoading = false;
@@ -77,7 +78,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     _animController.forward(from: 0);
   }
 
-  // --- Step Actions ---
+  // ── Step Actions ──────────────────────────────────────────────────────────
 
   Future<void> _checkEmail() async {
     final email = _emailCtrl.text.trim();
@@ -85,48 +86,115 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       setState(() => _error = 'Please enter your email address');
       return;
     }
-    // Simple email format validation
     if (!email.contains('@') || !email.contains('.')) {
       setState(() => _error = 'Please enter a valid email address');
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
       final membership = await ref.read(authProvider.notifier).checkEmailMembership(email);
-      if (membership != null) {
-        final bool hasPassword = membership['has_password'] == true;
-        final String role = membership['role'] ?? 'member';
-        _isteIdCtrl.text = membership['iste_id'] ?? '';
-        
-        final bool isExecom = role != 'member' && role != 'user';
 
-        if (isExecom) {
-          // Execom members should already have an account from the lynq app.
-          // They just need to log in.
-          _changeStep(AuthStep.isteLogin);
-        } else {
-          // General members need to create a password on their first login.
-          if (hasPassword) {
-            // Already created a password previously, just log in
-            _changeStep(AuthStep.isteLogin);
-          } else {
-            // First time, create a password
-            _nameCtrl.text = membership['name'] ?? '';
-            _phoneCtrl.text = membership['phone'] ?? '';
-            _changeStep(AuthStep.istePasswordCreate);
-          }
-        }
-      } else {
-        // Case 2: Non-ISTE Member Registration
+      if (membership == null) {
+        // No members row → guest registration
         _changeStep(AuthStep.guestRegistration);
+        return;
+      }
+
+      final String status = membership['status'] as String? ?? '';
+
+      switch (status) {
+        case 'member_otp_login':
+          // Member: send OTP to log in directly (auto-create auth user if first time)
+          await ref.read(authProvider.notifier).requestOTP(email, isSignUp: true);
+          setState(() {
+            _successMessage = 'A verification code was sent to $email. Enter it to log in.';
+          });
+          _changeStep(AuthStep.guestOtpVerify);
+          break;
+
+        case 'guest_login':
+          // Existing guest: send OTP to log in directly
+          await ref.read(authProvider.notifier).requestOTP(email, isSignUp: false);
+          setState(() {
+            _successMessage = 'A verification code was sent to $email. Enter it to log in.';
+          });
+          _changeStep(AuthStep.guestOtpVerify);
+          break;
+
+        case 'pending_iste_id':
+          // Members row exists but iste_id not yet assigned by admin
+          setState(() {
+            _error = 'Your ISTE membership is registered but your ISTE ID hasn\'t been issued yet. '
+                     'Please contact your execom to get your ID assigned.';
+          });
+          break;
+
+        case 'execom_unactivated':
+          // Execom member row exists but no auth account has been created via lynq
+          setState(() {
+            _error = 'Your execom account has not been activated yet. '
+                     'Please contact your chapter admin to set up your account in the execom app.';
+          });
+          break;
+
+        case 'login':
+          // Account exists and has a password → go to login
+          _isteIdCtrl.text = membership['iste_id'] ?? '';
+          _nameCtrl.text = membership['name'] ?? '';
+          _changeStep(AuthStep.isteLogin);
+          break;
+
+        case 'otp_required':
+          // First-time member: send OTP to verify email before allowing password creation
+          _isteIdCtrl.text = membership['iste_id'] ?? '';
+          _nameCtrl.text  = membership['name'] ?? '';
+          _phoneCtrl.text = membership['phone'] ?? '';
+
+          // Send OTP for email ownership verification
+          await ref.read(authProvider.notifier).requestIsteMemberOTP(email);
+
+          setState(() {
+            _successMessage =
+                'A verification code was sent to $email. Enter it below to confirm your email.';
+          });
+          _changeStep(AuthStep.isteOtpVerify);
+          break;
+
+        default:
+          // Fallback — treat as guest
+          _changeStep(AuthStep.guestRegistration);
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Verify the OTP sent to the ISTE member's email, then proceed to password creation.
+  Future<void> _verifyIsteMemberOtp() async {
+    final otp = _otpCtrl.text.trim();
+    if (otp.isEmpty) {
+      setState(() => _error = 'Please enter the verification code');
+      return;
+    }
+
+    setState(() { _isLoading = true; _error = null; });
+
+    try {
+      await ref.read(authProvider.notifier).verifyIsteMemberOTP(
+        _emailCtrl.text.trim(),
+        otp,
+      );
+      _otpCtrl.clear();
+      setState(() {
+        _successMessage = 'Email verified! Now set a password for your ISTE account.';
+      });
+      _changeStep(AuthStep.istePasswordCreate);
+    } catch (e) {
+      setState(() => _error = 'Invalid or expired verification code. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -139,27 +207,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
-      // Register with password
       await ref.read(authProvider.notifier).registerIsteMemberWithPassword(
         _emailCtrl.text.trim(),
         password,
         {
           'iste_id': _isteIdCtrl.text.trim(),
-          'name': _nameCtrl.text.trim(),
-          'phone': _phoneCtrl.text.trim(),
+          'name':    _nameCtrl.text.trim(),
+          'phone':   _phoneCtrl.text.trim(),
         },
       );
 
-      // Sign out to force them to log in on the login screen
+      // Sign out to force them to log in explicitly
       await ref.read(authProvider.notifier).signOut();
-
-      // Clear password field for login prompt
       _passwordCtrl.clear();
 
       setState(() {
@@ -180,10 +242,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
       await ref.read(authProvider.notifier).loginIsteMemberWithPassword(
@@ -191,7 +250,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         password,
       );
     } catch (e) {
-      setState(() => _error = 'Invalid credentials. Please verify your password.');
+      final msg = e.toString().replaceAll('Exception: ', '');
+      setState(() => _error = msg.contains('set up for this ISTE ID')
+          ? msg
+          : 'Invalid credentials. Please verify your password.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -206,21 +268,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
-      // Temporarily store sign up info
+      // Persist signup form data BEFORE sending OTP so it survives app kills
       ref.read(authProvider.notifier).setPendingSignUpData({
-        'name': _nameCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
+        'name':        _nameCtrl.text.trim(),
+        'phone':       _phoneCtrl.text.trim(),
         'roll_number': _regNoCtrl.text.trim(),
-        'college': _collegeCtrl.text.trim(),
+        'college':     _collegeCtrl.text.trim(),
       });
 
-      // Request OTP
       await ref.read(authProvider.notifier).requestOTP(
         _emailCtrl.text.trim(),
         isSignUp: true,
@@ -234,17 +292,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  Future<void> _verifyOtp() async {
+  Future<void> _verifyGuestOtp() async {
     final otp = _otpCtrl.text.trim();
     if (otp.isEmpty) {
       setState(() => _error = 'Please enter the OTP');
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
       await ref.read(authProvider.notifier).verifyOTP(
@@ -258,7 +313,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
-  // --- UI Builders ---
+  // ── UI Builders ───────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -320,7 +375,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-                  
+
                   Expanded(
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
@@ -378,38 +433,40 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             ),
                           ],
                           const SizedBox(height: 28),
-                          
-                          // CTA Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 56,
-                            child: _isLoading
-                                ? Container(
-                                    decoration: BoxDecoration(
-                                      color: MemberTheme.mSlate.withOpacity(0.3),
-                                      borderRadius: BorderRadius.circular(28),
+
+                          // CTA Button — only show if the current step has an action
+                          // (info-only states like pending_iste_id don't need a button)
+                          if (_hasActionButton())
+                            SizedBox(
+                              width: double.infinity,
+                              height: 56,
+                              child: _isLoading
+                                  ? Container(
+                                      decoration: BoxDecoration(
+                                        color: MemberTheme.mSlate.withOpacity(0.3),
+                                        borderRadius: BorderRadius.circular(28),
+                                      ),
+                                      child: const Center(
+                                        child: CircularProgressIndicator(
+                                            color: MemberTheme.mSlate, strokeWidth: 2.5),
+                                      ),
+                                    )
+                                  : ElevatedButton(
+                                      onPressed: _handleNextStepAction,
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: MemberTheme.mDarkCharcoal,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(28)),
+                                        elevation: 0,
+                                      ),
+                                      child: Text(
+                                        _getButtonText(),
+                                        style: GoogleFonts.spaceGrotesk(
+                                            fontSize: 17, fontWeight: FontWeight.w700),
+                                      ),
                                     ),
-                                    child: const Center(
-                                      child: CircularProgressIndicator(
-                                          color: MemberTheme.mSlate, strokeWidth: 2.5),
-                                    ),
-                                  )
-                                : ElevatedButton(
-                                    onPressed: _handleNextStepAction,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: MemberTheme.mDarkCharcoal,
-                                      foregroundColor: Colors.white,
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(28)),
-                                      elevation: 0,
-                                    ),
-                                    child: Text(
-                                      _getButtonText(),
-                                      style: GoogleFonts.spaceGrotesk(
-                                          fontSize: 17, fontWeight: FontWeight.w700),
-                                    ),
-                                  ),
-                          ),
+                            ),
 
                           _buildBackLink(),
                         ],
@@ -438,7 +495,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             _buildField(controller: _emailCtrl, hint: 'Email Address', icon: Icons.email_outlined, keyboardType: TextInputType.emailAddress),
           ],
         );
-      
+
+      case AuthStep.isteOtpVerify:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Verify Your Email', style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.bold, color: MemberTheme.mDarkCharcoal)),
+            const SizedBox(height: 8),
+            Text(
+              'We sent a verification code to ${_emailCtrl.text} to confirm you own this ISTE member email.',
+              style: GoogleFonts.inter(fontSize: 14, color: MemberTheme.mDarkCharcoal.withOpacity(0.5)),
+            ),
+            const SizedBox(height: 28),
+            _buildField(controller: _otpCtrl, hint: 'Verification Code', icon: Icons.lock_outlined, keyboardType: TextInputType.number, autofocus: true),
+          ],
+        );
+
       case AuthStep.istePasswordCreate:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,10 +573,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
   }
 
+  bool _hasActionButton() => _currentStep != AuthStep.emailEntry || true;
+  // emailEntry always has Continue; info states fall through because the error
+  // message is displayed instead and the button text is still 'Continue' to
+  // let user try a different email — so always return true.
+
   void _handleNextStepAction() {
     switch (_currentStep) {
       case AuthStep.emailEntry:
         _checkEmail();
+        break;
+      case AuthStep.isteOtpVerify:
+        _verifyIsteMemberOtp();
         break;
       case AuthStep.istePasswordCreate:
         _createPassword();
@@ -516,7 +596,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         _signUpGuest();
         break;
       case AuthStep.guestOtpVerify:
-        _verifyOtp();
+        _verifyGuestOtp();
         break;
     }
   }
@@ -525,6 +605,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     switch (_currentStep) {
       case AuthStep.emailEntry:
         return 'Continue';
+      case AuthStep.isteOtpVerify:
+        return 'Verify & Continue';
       case AuthStep.istePasswordCreate:
         return 'Create Password';
       case AuthStep.isteLogin:
@@ -540,6 +622,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     if (_currentStep == AuthStep.emailEntry) {
       return const SizedBox.shrink();
     }
+    // For OTP steps, "Change details" goes back one level; others go to email entry
+    final bool isOtpStep = _currentStep == AuthStep.guestOtpVerify ||
+        _currentStep == AuthStep.isteOtpVerify;
     return Column(
       children: [
         const SizedBox(height: 16),
@@ -548,12 +633,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             onPressed: () {
               if (_currentStep == AuthStep.guestOtpVerify) {
                 _changeStep(AuthStep.guestRegistration);
+              } else if (_currentStep == AuthStep.isteOtpVerify) {
+                _changeStep(AuthStep.emailEntry);
+              } else if (_currentStep == AuthStep.istePasswordCreate) {
+                // Can't go back from password creation after OTP verified —
+                // they'd need to restart. Go back to email.
+                _changeStep(AuthStep.emailEntry);
               } else {
                 _changeStep(AuthStep.emailEntry);
               }
             },
             child: Text(
-              _currentStep == AuthStep.guestOtpVerify ? 'Change details' : 'Go back to email entry',
+              isOtpStep ? 'Change details' : 'Go back to email entry',
               style: GoogleFonts.inter(color: MemberTheme.mDarkCharcoal.withOpacity(0.5), fontSize: 13),
             ),
           ),
