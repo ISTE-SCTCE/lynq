@@ -19,6 +19,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
   Map<String, dynamic>? _event;
   bool _isAttended = false;
   bool _isLoading = true;
+  Map<String, dynamic>? _certificate;
+  bool _finalized = false;
 
   static const _terracotta = Color(0xFFD97D55);
   static const _cream = Color(0xFFF4E9D7);
@@ -53,6 +55,11 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           .eq('event_id', widget.eventId)
           .eq('user_id', auth.user?.id ?? '')
           .limit(1),
+      _supabase.from('certificates')
+          .select('id, certificate_url, file_url, issued_at')
+          .eq('event_id', widget.eventId)
+          .eq('user_id', auth.user?.id ?? '')
+          .maybeSingle(),
     ]);
     if (mounted) {
       final eventData = futures[0] as Map<String, dynamic>?;
@@ -74,6 +81,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         _isAttended = (futures[1] as List).isNotEmpty;
         _isAllowed = allowed;
         _isLoading = false;
+        _certificate = futures[2] as Map<String, dynamic>?;
+        _finalized = (_event?['attendance_finalized'] as bool?) ?? false;
       });
     }
   }
@@ -311,6 +320,9 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
+                  // Certificate section
+                  if (isPast && _isAttended) ..._buildCertificateSection(),
+                  if (isPast && _isAttended) const SizedBox(height: 24),
                   // Description
                   if (event['description'] != null && event['description'].toString().isNotEmpty) ...[
                     Text('About',
@@ -385,6 +397,132 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildCertificateSection() {
+    const goldColor = Color(0xFFC9A227);
+    const navyColor = Color(0xFF1B2A4A);
+    const tealColor = Color(0xFF2F6F6E);
+
+    if (_certificate != null) {
+      final certUrl = (_certificate!['certificate_url'] as String?)?.isNotEmpty == true
+          ? _certificate!['certificate_url'] as String
+          : _certificate!['file_url'] as String? ?? '';
+      final issuedAt = DateTime.tryParse(_certificate!['issued_at'] as String? ?? '');
+
+      return [
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [goldColor.withValues(alpha: 0.12), _surface.withValues(alpha: 0.8)],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: goldColor.withValues(alpha: 0.4)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [goldColor.withValues(alpha: 0.35), goldColor.withValues(alpha: 0.08)],
+                      ),
+                      border: Border.all(color: goldColor.withValues(alpha: 0.6), width: 1.5),
+                    ),
+                    child: const Icon(Icons.workspace_premium_rounded, color: goldColor, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Your Certificate',
+                            style: GoogleFonts.spaceGrotesk(
+                                fontSize: 15, fontWeight: FontWeight.w700, color: const Color(0xFFF4E9D7))),
+                        if (issuedAt != null)
+                          Text(
+                            'Issued ${issuedAt.day} ${_monthFull(issuedAt.month)} ${issuedAt.year}',
+                            style: GoogleFonts.inter(fontSize: 11, color: Colors.white38),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (certUrl.isNotEmpty)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication),
+                        icon: const Icon(Icons.visibility_rounded, size: 16),
+                        label: Text('View', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: navyColor,
+                          side: BorderSide(color: navyColor.withValues(alpha: 0.5)),
+                          backgroundColor: Colors.white.withValues(alpha: 0.07),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication),
+                        icon: const Icon(Icons.download_rounded, size: 16),
+                        label: Text('Download', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tealColor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ];
+    } else if (_finalized) {
+      return [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.amber.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 18, height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Your certificate is being generated…',
+                  style: GoogleFonts.inter(fontSize: 13, color: Colors.amber, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+    return [];
   }
 
   Widget _infoCard(IconData icon, String label, String value, Color color) {

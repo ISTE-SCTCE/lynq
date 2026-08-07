@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DashboardLayout from '../components/DashboardLayout';
-import { ArrowLeft, Calendar, Clock, MapPin, Star, CheckCircle, Lock, DollarSign } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, MapPin, Star, CheckCircle, Lock, DollarSign, Award, Download, Eye, Loader2 } from 'lucide-react';
 
 function getTypeColor(type) {
   const t = (type || '').toLowerCase();
@@ -11,6 +11,100 @@ function getTypeColor(type) {
   if (t.includes('tech') || t.includes('seminar')) return '#9B8FCA';
   if (t.includes('hackathon') || t.includes('meetup')) return '#D97D55';
   return '#D97D55';
+}
+
+// ── Certificate section (past + attended events) ───────────────────────────────
+function CertificateSection({ certificate, finalized }) {
+  const url = certificate?.certificate_url || certificate?.file_url || '';
+  const issuedAt = certificate?.issued_at
+    ? new Date(certificate.issued_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+
+  if (certificate && url) {
+    return (
+      <div style={{
+        borderRadius: 18, marginBottom: 20, overflow: 'hidden',
+        border: '1.5px solid rgba(201,162,39,0.4)',
+        background: 'linear-gradient(135deg, rgba(201,162,39,0.10) 0%, #FFFDF8 80%)',
+      }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px 12px' }}>
+          <div style={{
+            width: 46, height: 46, borderRadius: '50%', flexShrink: 0,
+            background: 'radial-gradient(circle, rgba(201,162,39,0.25), rgba(201,162,39,0.06))',
+            border: '1.5px solid rgba(201,162,39,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Award size={22} color="#C9A227" />
+          </div>
+          <div>
+            <div style={{
+              fontFamily: "'Space Grotesk',sans-serif", fontSize: 15, fontWeight: 700, color: '#1B2A4A',
+            }}>
+              Your Certificate is Ready
+            </div>
+            {issuedAt && (
+              <div style={{ fontFamily: "'Inter',sans-serif", fontSize: 11, color: '#8a8371' }}>
+                Issued {issuedAt}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: '#EFE9D8' }} />
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex' }}>
+          <button
+            onClick={() => window.open(url, '_blank')}
+            style={{
+              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 600, color: '#1B2A4A',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(27,42,74,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <Eye size={15} /> View
+          </button>
+          <div style={{ width: 1, background: '#EFE9D8' }} />
+          <button
+            onClick={() => window.open(url, '_blank')}
+            style={{
+              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 600, color: '#2F6F6E',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(47,111,110,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
+            <Download size={15} /> Download
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (finalized) {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        background: 'rgba(245,197,62,0.08)', border: '1px solid rgba(245,197,62,0.3)',
+        borderRadius: 14, padding: '12px 16px', marginBottom: 20,
+      }}>
+        <Loader2 size={18} color="#C9A227" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+        <span style={{ fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 500, color: '#9a7c10' }}>
+          Your certificate is being generated…
+        </span>
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 export default function EventDetailPage() {
@@ -21,17 +115,26 @@ export default function EventDetailPage() {
   const [isAttended, setIsAttended] = useState(false);
   const [isAllowed, setIsAllowed] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [certificate, setCertificate] = useState(null);
+  const [finalized, setFinalized] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
-      const [evRes, attRes] = await Promise.all([
+      const [evRes, attRes, certRes] = await Promise.all([
         supabase.from('events').select().eq('id', parseInt(id)).maybeSingle(),
         supabase.from('attendance').select('id').eq('event_id', parseInt(id)).eq('user_id', user.id).limit(1),
+        supabase.from('certificates')
+          .select('id, certificate_url, file_url, issued_at')
+          .eq('event_id', parseInt(id))
+          .eq('user_id', user.id)
+          .maybeSingle(),
       ]);
       const ev = evRes.data;
       setEvent(ev);
       setIsAttended((attRes.data || []).length > 0);
+      setCertificate(certRes.data || null);
+      setFinalized(ev?.attendance_finalized ?? false);
       if (ev?.allowed_roles?.length > 0) {
         setIsAllowed(ev.allowed_roles.includes(role));
       }
@@ -44,6 +147,7 @@ export default function EventDetailPage() {
     <DashboardLayout>
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <div style={{ width: 36, height: 36, border: '4px solid #D3E3F0', borderTopColor: '#5F85A2', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+        <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       </div>
     </DashboardLayout>
   );
@@ -68,10 +172,12 @@ export default function EventDetailPage() {
     </DashboardLayout>
   );
 
-  const typeColor = getTypeColor(event.type);
+  const typeColor = getTypeColor(event.type || event.category);
   const eventDate = event.date ? new Date(event.date) : null;
   const today = new Date();
-  const daysAway = eventDate ? Math.ceil((eventDate - today) / (1000*60*60*24)) : null;
+  today.setHours(0, 0, 0, 0);
+  const isPast = eventDate ? eventDate < today : false;
+  const daysAway = eventDate ? Math.ceil((eventDate - today) / (1000 * 60 * 60 * 24)) : null;
 
   const perks = Array.isArray(event.perks) ? event.perks : (typeof event.perks === 'string' ? [event.perks] : []);
   const posters = Array.isArray(event.posters) ? event.posters : (event.poster_url ? [event.poster_url] : []);
@@ -120,6 +226,11 @@ export default function EventDetailPage() {
             <CheckCircle size={20} color="#38A169" />
             <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 600, color: '#276749', fontSize: 14 }}>You attended this event ✓</span>
           </div>
+        )}
+
+        {/* ── Certificate section (past + attended only) ─────────────────── */}
+        {isPast && isAttended && (
+          <CertificateSection certificate={certificate} finalized={finalized} />
         )}
 
         {/* Info cards */}
@@ -171,11 +282,15 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* Register CTA */}
-        <button onClick={() => alert('Registration flow not connected yet.')} style={{ width: '100%', padding: '16px', background: typeColor, color: '#fff', border: 'none', borderRadius: 28, fontSize: 16, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif", cursor: 'pointer', boxShadow: `0 8px 24px ${typeColor}40` }}>
-          Register Now
-        </button>
+        {/* Register CTA (only for upcoming/ongoing events) */}
+        {!isPast && (
+          <button onClick={() => alert('Registration flow not connected yet.')} style={{ width: '100%', padding: '16px', background: typeColor, color: '#fff', border: 'none', borderRadius: 28, fontSize: 16, fontWeight: 700, fontFamily: "'Space Grotesk',sans-serif", cursor: 'pointer', boxShadow: `0 8px 24px ${typeColor}40` }}>
+            Register Now
+          </button>
+        )}
       </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </DashboardLayout>
   );
 }

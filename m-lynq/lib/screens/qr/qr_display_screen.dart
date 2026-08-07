@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,6 +75,24 @@ class _QrDisplayScreenState extends ConsumerState<QrDisplayScreen>
     super.dispose();
   }
 
+  /// Derives a 32-byte AES key from QR_SIGNING_SECRET build-time constant.
+  enc.Key _derivedKey() {
+    const secret = String.fromEnvironment('QR_SIGNING_SECRET', defaultValue: 'ISTE_QR_SECRET_DEV_FALLBACK_32ch');
+    final bytes = utf8.encode(secret);
+    final hash = sha256.convert(bytes).bytes;
+    return enc.Key(Uint8List.fromList(hash));
+  }
+
+  /// Encrypts a JSON payload with AES-256-GCM.
+  /// Returns "<iv_base64url>.<ciphertext_base64>"
+  String _encryptPayload(String plaintext) {
+    final key = _derivedKey();
+    final iv = enc.IV.fromSecureRandom(16);
+    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm));
+    final encrypted = encrypter.encrypt(plaintext, iv: iv);
+    return '${base64Url.encode(iv.bytes)}.${encrypted.base64}';
+  }
+
   Future<void> _generateToken() async {
     if (_isGenerating) return;
     _isGenerating = true;
@@ -113,12 +132,13 @@ class _QrDisplayScreenState extends ConsumerState<QrDisplayScreen>
         'is_used': false,
       });
 
-      // QR payload
-      final qrPayload = jsonEncode({
+      // QR payload — AES-256-GCM encrypted so uid/token are never visible in plaintext
+      final plainPayload = jsonEncode({
         'uid': userId,
         'token': tokenHash,
         'ts': now.millisecondsSinceEpoch,
       });
+      final qrPayload = _encryptPayload(plainPayload);
 
       if (mounted) {
         setState(() {
