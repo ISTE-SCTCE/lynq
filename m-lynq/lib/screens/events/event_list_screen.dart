@@ -66,23 +66,21 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
 
   // Filter events matching selected calendar date
   List<Map<String, dynamic>> get _eventsForSelectedDate {
+    final dateStr = "${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}";
     return _events.where((e) {
-      final d = DateTime.tryParse(e['date'] as String? ?? '');
-      return d != null &&
-          d.year == _selectedDate.year &&
-          d.month == _selectedDate.month &&
-          d.day == _selectedDate.day;
+      final eventDate = e['date'] as String? ?? '';
+      final eventDateOnly = eventDate.split('T').first;
+      return eventDateOnly == dateStr;
     }).toList();
   }
 
   // Helper to check if a specific date has any registered events
   bool _dateHasEvents(DateTime date) {
+    final dateStr = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
     return _events.any((e) {
-      final d = DateTime.tryParse(e['date'] as String? ?? '');
-      return d != null &&
-          d.year == date.year &&
-          d.month == date.month &&
-          d.day == date.day;
+      final eventDate = e['date'] as String? ?? '';
+      final eventDateOnly = eventDate.split('T').first;
+      return eventDateOnly == dateStr;
     });
   }
 
@@ -102,7 +100,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
       // Full month view (42 days to cover all possible month spans)
       final firstDayOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
       final firstCalendarDay = firstDayOfMonth.subtract(Duration(days: firstDayOfMonth.weekday - 1));
-      daysToShow = List.generate(35, (i) => firstCalendarDay.add(Duration(days: i)));
+      daysToShow = List.generate(42, (i) => firstCalendarDay.add(Duration(days: i)));
     }
 
     return Scaffold(

@@ -220,7 +220,7 @@ class _EventListScreenState extends State<EventListScreen> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: TableCalendar(
           firstDay: DateTime.utc(2024, 1, 1),
-          lastDay: DateTime.utc(2026, 12, 31),
+          lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: _focusedDay,
           calendarFormat: _calendarFormat,
           selectedDayPredicate: (day) => isSameDay(_selectedDay, day),

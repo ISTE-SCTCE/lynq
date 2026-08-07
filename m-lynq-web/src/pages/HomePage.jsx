@@ -45,10 +45,10 @@ export default function HomePage() {
   }, [user]);
 
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const ongoingEvents = events.filter(e => { const d = new Date(e.date); return d.toDateString() === today.toDateString(); });
-  const upcomingEvents = events.filter(e => new Date(e.date) > today);
-  const pastEvents = [...events.filter(e => new Date(e.date) < today)].reverse();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const ongoingEvents = events.filter(e => (e.date || '').split('T')[0] === todayStr);
+  const upcomingEvents = events.filter(e => (e.date || '').split('T')[0] > todayStr);
+  const pastEvents = [...events.filter(e => (e.date || '').split('T')[0] < todayStr)].reverse();
 
   const filteredItems = (() => {
     if (category === 'All') return [...announcements.map(a => ({ ...a, _type: 'announcement' })), ...events.map(e => ({ ...e, _type: 'event' }))];

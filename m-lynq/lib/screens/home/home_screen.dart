@@ -59,18 +59,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (mounted) {
         final allEvents = (futures[0] as List).cast<Map<String, dynamic>>();
         final now = DateTime.now();
-        final today = DateTime(now.year, now.month, now.day);
 
         final ongoing = <Map<String, dynamic>>[];
         final upcoming = <Map<String, dynamic>>[];
         final past = <Map<String, dynamic>>[];
 
+        final todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
         for (var e in allEvents) {
-          final eDate = DateTime.parse(e['date']).toLocal();
-          final eventDay = DateTime(eDate.year, eDate.month, eDate.day);
-          if (eventDay.isAtSameMomentAs(today)) {
+          final eventDate = e['date'] as String? ?? '';
+          final eventDateOnly = eventDate.split('T').first;
+          if (eventDateOnly == todayStr) {
             ongoing.add(e);
-          } else if (eventDay.isAfter(today)) {
+          } else if (eventDateOnly.compareTo(todayStr) > 0) {
             upcoming.add(e);
           } else {
             past.add(e);

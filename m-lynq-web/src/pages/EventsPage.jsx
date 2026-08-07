@@ -54,8 +54,15 @@ export default function EventsPage() {
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
 
-  const eventDates = events.map(e => new Date(e.date));
-  const selectedEvents = events.filter(e => isSameDay(new Date(e.date), selectedDate));
+  const toLocalDateString = (d) => {
+    if (!d) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const selectedEvents = events.filter(e => {
+    const eventDateStr = (e.date || '').split('T')[0];
+    return eventDateStr === toLocalDateString(selectedDate);
+  });
 
   const getPriceLabel = (e) => {
     if (!e.is_paid) return 'Free';
@@ -97,7 +104,10 @@ export default function EventsPage() {
               if (!date) return <div key={`e-${i}`} />;
               const isToday = isSameDay(date, new Date());
               const isSelected = isSameDay(date, selectedDate);
-              const hasEvent = eventDates.some(d => isSameDay(d, date));
+              const hasEvent = events.some(e => {
+                const eventDateStr = (e.date || '').split('T')[0];
+                return eventDateStr === toLocalDateString(date);
+              });
               const isCurrentMonth = date.getMonth() === month;
               return (
                 <button key={date.toISOString()} onClick={() => setSelectedDate(date)} style={{
