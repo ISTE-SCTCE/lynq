@@ -356,22 +356,55 @@ export default function CertificatesPage() {
     if (!user?.id) return;
     (async () => {
       setIsLoading(true);
-      const { data } = await supabase
-        .from('certificates')
-        .select('id, event_id, student_name, user_id, certificate_url, file_url, issued_at, events(id, title, date, category, type)')
-        .eq('user_id', user.id)
-        .order('issued_at', { ascending: false });
+      try {
+        // 1. Fetch certificates for current user
+        const { data: certData, error: certErr } = await supabase
+          .from('certificates')
+          .select('id, event_id, student_name, user_id, certificate_url, file_url, issued_at')
+          .eq('user_id', user.id)
+          .order('issued_at', { ascending: false });
 
-      const normalised = (data || []).map(item => ({
-        ...item,
-        _url: item.certificate_url || item.file_url || '',
-        _category: item.events?.category || item.events?.type || null,
-        _eventTitle: item.events?.title || 'Event',
-        _eventDate: item.events?.date || '',
-        _eventId: item.events?.id || item.event_id,
-      }));
-      setAll(normalised);
-      setIsLoading(false);
+        if (certErr) throw certErr;
+
+        const certList = certData || [];
+
+        // 2. Fetch event details for unique event_ids
+        const eventIds = [...new Set(certList.map(c => c.event_id).filter(Boolean))];
+        const eventsMap = {};
+
+        if (eventIds.length > 0) {
+          const { data: eventRows, error: evErr } = await supabase
+            .from('events')
+            .select('id, title, date, category, type')
+            .in('id', eventIds);
+
+          if (evErr) throw evErr;
+
+          (eventRows || []).forEach(ev => {
+            eventsMap[ev.id] = ev;
+          });
+        }
+
+        // 3. Normalise and merge data
+        const normalised = certList.map(item => {
+          const ev = eventsMap[item.event_id];
+          return {
+            ...item,
+            events: ev || null,
+            _url: item.certificate_url || item.file_url || '',
+            _category: ev?.category || ev?.type || null,
+            _eventTitle: ev?.title || 'Event',
+            _eventDate: ev?.date || '',
+            _eventId: ev?.id || item.event_id,
+          };
+        });
+
+        setAll(normalised);
+      } catch (err) {
+        console.error('Error fetching certificates:', err);
+      } finally {
+        setIsLoading(false);
+      }
     })();
   }, [user]);
 
