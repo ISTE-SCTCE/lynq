@@ -175,11 +175,24 @@ function CertCard({ cert, navigate }) {
         if (!resolvedName) resolvedName = 'Member';
         // ─────────────────────────────────────────────────────────────────
 
+        const coordinatorName = cert.events?.coordinator_name || '';
+        const chairName = cert.events?.chair_name || '';
+
         // Replace placeholders
         html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{STUDENT_NAME}}', resolvedName);
         html = html.replaceAll('{{event_name}}', eventTitle);
+        html = html.replaceAll('{{EVENT_NAME}}', eventTitle);
         html = html.replaceAll('{{date}}', dateLabel);
+        html = html.replaceAll('{{DATE}}', dateLabel);
+        html = html.replaceAll('{{event_date}}', dateLabel);
+        html = html.replaceAll('{{EVENT_DATE}}', dateLabel);
         html = html.replaceAll('{{certificate_id}}', certId);
+        html = html.replaceAll('{{CERTIFICATE_ID}}', certId);
+        html = html.replaceAll('{{coordinator_name}}', coordinatorName);
+        html = html.replaceAll('{{COORDINATOR_NAME}}', coordinatorName);
+        html = html.replaceAll('{{chair_name}}', chairName);
+        html = html.replaceAll('{{CHAIR_NAME}}', chairName);
 
         const container = document.createElement('div');
         container.innerHTML = html;
@@ -375,7 +388,7 @@ export default function CertificatesPage() {
         if (eventIds.length > 0) {
           const { data: eventRows, error: evErr } = await supabase
             .from('events')
-            .select('id, title, date, category, type')
+            .select('id, title, date, category, type, coordinator_name, chair_name')
             .in('id', eventIds);
 
           if (evErr) throw evErr;

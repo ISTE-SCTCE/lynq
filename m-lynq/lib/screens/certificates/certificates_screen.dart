@@ -99,7 +99,7 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
       if (eventIds.isNotEmpty) {
         final eventRows = await _supabase
             .from('events')
-            .select('id, title, date, type, category')
+            .select('id, title, date, type, category, coordinator_name, chair_name')
             .inFilter('id', eventIds);
 
         for (final ev in (eventRows as List)) {
@@ -123,6 +123,8 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
             m['_eventTitle'] = ev?['title'] as String? ?? m['title'] as String? ?? 'Certificate';
             m['_eventDate']  = ev?['date']  as String? ?? '';
             m['_eventId']    = evId;
+            m['_coordinatorName'] = ev?['coordinator_name'] as String? ?? '';
+            m['_chairName'] = ev?['chair_name'] as String? ?? '';
             return m;
           }).toList();
           _isLoading = false;
@@ -140,6 +142,8 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
     required String eventTitle,
     required String dateStr,
     required dynamic certIdVal,
+    required String coordinatorName,
+    required String chairName,
   }) async {
     if (_isDownloadingCert) return;
     setState(() => _isDownloadingCert = true);
@@ -200,10 +204,21 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
 
         final certId = certIdVal?.toString() ?? 'ISTE-CERT-${DateTime.now().millisecondsSinceEpoch}';
 
+        // Perform case-insensitive/variant replacements
         html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{STUDENT_NAME}}', resolvedName);
         html = html.replaceAll('{{event_name}}', eventTitle);
+        html = html.replaceAll('{{EVENT_NAME}}', eventTitle);
         html = html.replaceAll('{{date}}', dateStr);
+        html = html.replaceAll('{{DATE}}', dateStr);
+        html = html.replaceAll('{{event_date}}', dateStr);
+        html = html.replaceAll('{{EVENT_DATE}}', dateStr);
         html = html.replaceAll('{{certificate_id}}', certId);
+        html = html.replaceAll('{{CERTIFICATE_ID}}', certId);
+        html = html.replaceAll('{{coordinator_name}}', coordinatorName);
+        html = html.replaceAll('{{COORDINATOR_NAME}}', coordinatorName);
+        html = html.replaceAll('{{chair_name}}', chairName);
+        html = html.replaceAll('{{CHAIR_NAME}}', chairName);
 
         final dir = await getApplicationDocumentsDirectory();
         final sanitizedTitle = eventTitle.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
@@ -350,6 +365,8 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
                                   eventTitle: title,
                                   dateStr: date,
                                   certIdVal: certId,
+                                  coordinatorName: c['_coordinatorName'] as String? ?? '',
+                                  chairName: c['_chairName'] as String? ?? '',
                                 );
                               },
                             ),

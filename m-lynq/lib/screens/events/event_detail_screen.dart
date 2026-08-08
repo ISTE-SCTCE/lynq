@@ -86,10 +86,24 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       if (resolvedName.isEmpty) resolvedName = 'Member';
       // ─────────────────────────────────────────────────────────────────────
       
+      final coordinatorName = _event?['coordinator_name'] as String? ?? '';
+      final chairName = _event?['chair_name'] as String? ?? '';
+
+      // Perform case-insensitive/variant replacements
       html = html.replaceAll('{{student_name}}', resolvedName);
+      html = html.replaceAll('{{STUDENT_NAME}}', resolvedName);
       html = html.replaceAll('{{event_name}}', eventTitle);
+      html = html.replaceAll('{{EVENT_NAME}}', eventTitle);
       html = html.replaceAll('{{date}}', dateLabel);
+      html = html.replaceAll('{{DATE}}', dateLabel);
+      html = html.replaceAll('{{event_date}}', dateLabel);
+      html = html.replaceAll('{{EVENT_DATE}}', dateLabel);
       html = html.replaceAll('{{certificate_id}}', certId);
+      html = html.replaceAll('{{CERTIFICATE_ID}}', certId);
+      html = html.replaceAll('{{coordinator_name}}', coordinatorName);
+      html = html.replaceAll('{{COORDINATOR_NAME}}', coordinatorName);
+      html = html.replaceAll('{{chair_name}}', chairName);
+      html = html.replaceAll('{{CHAIR_NAME}}', chairName);
       
       final dir = await getApplicationDocumentsDirectory();
       final targetPath = dir.path;

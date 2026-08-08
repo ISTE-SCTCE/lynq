@@ -16,7 +16,7 @@ function getTypeColor(type) {
 }
 
 // ── Certificate section (past + attended events) ───────────────────────────────
-function CertificateSection({ certificate, finalized, eventTitle, eventId }) {
+function CertificateSection({ certificate, finalized, eventTitle, eventId, coordinatorName, chairName }) {
   const auth = useAuth();
   const url = certificate?.certificate_url || certificate?.file_url || '';
   const issuedAt = certificate?.issued_at
@@ -81,9 +81,19 @@ function CertificateSection({ certificate, finalized, eventTitle, eventId }) {
 
         // Replace placeholders
         html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{STUDENT_NAME}}', resolvedName);
         html = html.replaceAll('{{event_name}}', eventTitle || 'Event');
+        html = html.replaceAll('{{EVENT_NAME}}', eventTitle || 'Event');
         html = html.replaceAll('{{date}}', issuedAt || '');
+        html = html.replaceAll('{{DATE}}', issuedAt || '');
+        html = html.replaceAll('{{event_date}}', issuedAt || '');
+        html = html.replaceAll('{{EVENT_DATE}}', issuedAt || '');
         html = html.replaceAll('{{certificate_id}}', certId);
+        html = html.replaceAll('{{CERTIFICATE_ID}}', certId);
+        html = html.replaceAll('{{coordinator_name}}', coordinatorName || '');
+        html = html.replaceAll('{{COORDINATOR_NAME}}', coordinatorName || '');
+        html = html.replaceAll('{{chair_name}}', chairName || '');
+        html = html.replaceAll('{{CHAIR_NAME}}', chairName || '');
 
         const container = document.createElement('div');
         container.innerHTML = html;
@@ -336,7 +346,7 @@ export default function EventDetailPage() {
 
         {/* ── Certificate section (past + attended only) ─────────────────── */}
         {isPast && isAttended && (
-          <CertificateSection certificate={certificate} finalized={finalized} eventTitle={event.title} eventId={event.id} />
+          <CertificateSection certificate={certificate} finalized={finalized} eventTitle={event.title} eventId={event.id} coordinatorName={event.coordinator_name} chairName={event.chair_name} />
         )}
 
         {/* Info cards */}
