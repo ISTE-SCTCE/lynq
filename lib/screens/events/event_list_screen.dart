@@ -25,7 +25,7 @@ class EventListScreen extends StatefulWidget {
 
 class _EventListScreenState extends State<EventListScreen> {
   List<EventModel> _events = [];
-  Map<String, String> _creatorRoles = {};
+  final Map<String, String> _creatorRoles = {};
   bool _isLoading = true;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
@@ -433,7 +433,7 @@ class _EventListScreenState extends State<EventListScreen> {
                           ),
                         ),
                         icon: const Icon(Icons.workspace_premium_rounded, size: 16),
-                        label: Text('Certificates', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
+                        label: Text('Publish Certs', style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.amber.shade700,
                           foregroundColor: Colors.white,

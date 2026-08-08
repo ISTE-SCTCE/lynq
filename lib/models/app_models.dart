@@ -14,6 +14,9 @@ class EventModel {
   final String? location;
   final List<String>? allowedRoles;
   final int numDays;
+  /// True when the event day has ended and the exec has finalised attendance.
+  /// Backed by `attendance_finalized` in the `events` table.
+  final bool isCompleted;
 
   const EventModel({
     required this.id,
@@ -31,6 +34,7 @@ class EventModel {
     this.location,
     this.allowedRoles,
     this.numDays = 1,
+    this.isCompleted = false,
   });
 
   factory EventModel.fromJson(Map<String, dynamic> json) => EventModel(
@@ -49,6 +53,7 @@ class EventModel {
     location: json['location'] as String?,
     allowedRoles: (json['allowed_roles'] as List?)?.map((e) => e.toString()).toList(),
     numDays: json['num_days'] as int? ?? 1,
+    isCompleted: json['attendance_finalized'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
