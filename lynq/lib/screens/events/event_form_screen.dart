@@ -5,6 +5,7 @@ import '../../shared/widgets/glass_card.dart';
 import '../../shared/widgets/custom_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:io';
@@ -34,6 +35,12 @@ class _EventFormScreenState extends State<EventFormScreen> {
   bool _isPaid = false;
   List<File> _posterFiles = [];
   int _numDays = 1;
+
+  final _coordinatorCtrl = TextEditingController();
+  final _chairCtrl = TextEditingController();
+  String? _selectedCategory;
+  static const _categories = ['Hackathon', 'Workshop', 'Seminar', 'General'];
+  File? _templateFile;
 
   Future<void> _pickImages() async {
     final picker = ImagePicker();
@@ -74,11 +81,30 @@ class _EventFormScreenState extends State<EventFormScreen> {
     return urls;
   }
 
+  Future<String?> _uploadTemplate() async {
+    if (_templateFile == null) return null;
+    try {
+      final ext = _templateFile!.path.split('.').last;
+      final fileName = 'template_${const Uuid().v4()}.$ext';
+      final path = 'templates/$fileName';
+      await Supabase.instance.client.storage
+          .from('event_posters')
+          .upload(path, _templateFile!);
+      return Supabase.instance.client.storage
+          .from('event_posters')
+          .getPublicUrl(path);
+    } catch (e) {
+      debugPrint('Template upload error: $e');
+      return null;
+    }
+  }
+
   Future<void> _submit() async {
     if (_titleCtrl.text.isEmpty) return;
     setState(() => _isLoading = true);
     try {
       List<String> uploadedPosterUrls = await _uploadPosters();
+      String? uploadedTemplateUrl = await _uploadTemplate();
 
       await Supabase.instance.client.from('events').insert({
         'title': _titleCtrl.text.trim(),
@@ -96,6 +122,10 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'posters': uploadedPosterUrls,
         'perks': _perks,
         'num_days': _numDays,
+        'coordinator_name': _coordinatorCtrl.text.trim().isEmpty ? null : _coordinatorCtrl.text.trim(),
+        'chair_name': _chairCtrl.text.trim().isEmpty ? null : _chairCtrl.text.trim(),
+        'category': _selectedCategory,
+        'template_url': uploadedTemplateUrl,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event created'), backgroundColor: Colors.green));
@@ -248,6 +278,73 @@ class _EventFormScreenState extends State<EventFormScreen> {
               ),
               const SizedBox(height: 16),
               CustomTextField(label: 'Location', controller: _locationCtrl, prefixIcon: Icons.location_on_outlined),
+              const SizedBox(height: 16),
+              // ── Certificate Info ─────────────────────────────────────────
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                decoration: InputDecoration(
+                  labelText: 'Event Category',
+                  prefixIcon: const Icon(Icons.category_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.05),
+                ),
+                items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                onChanged: (v) => setState(() => _selectedCategory = v),
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                label: 'Event Coordinator Name',
+                controller: _coordinatorCtrl,
+                prefixIcon: Icons.person_outline,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                label: 'Chapter Chairperson Name',
+                controller: _chairCtrl,
+                prefixIcon: Icons.manage_accounts_outlined,
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: () async {
+                  FilePickerResult? result = await FilePicker.platform.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['html'],
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    setState(() {
+                      _templateFile = File(result.files.single.path!);
+                    });
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _templateFile != null ? Colors.green.withValues(alpha: 0.5) : Colors.transparent),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.html_outlined, size: 24, color: _templateFile != null ? Colors.green : Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _templateFile != null ? _templateFile!.path.split(Platform.pathSeparator).last : 'Upload HTML Certificate Template (Optional)',
+                          style: GoogleFonts.inter(color: _templateFile != null ? Colors.green : Colors.grey),
+                        ),
+                      ),
+                      if (_templateFile != null)
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => setState(() => _templateFile = null),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
               // ── Number of Days ──────────────────────────────────────
               Container(

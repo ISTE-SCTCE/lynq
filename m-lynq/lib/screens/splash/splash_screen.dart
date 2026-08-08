@@ -14,17 +14,24 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
-  bool _showOnboarding = true;
-
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
 
     // If auth finishes loading and user is already authenticated, auto-route to home
-    if (!authState.isLoading && authState.isAuthenticated && !_showOnboarding) {
+    if (!authState.isLoading && authState.isAuthenticated) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        context.go('/home');
+        if (mounted) context.go('/home');
       });
+    }
+
+    if (authState.isLoading) {
+      return const Scaffold(
+        backgroundColor: MemberTheme.mBackground,
+        body: Center(
+          child: CircularProgressIndicator(color: MemberTheme.mSlate),
+        ),
+      );
     }
 
     return Scaffold(
@@ -65,7 +72,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                   'Learn something new today to grow knowledge, creativity, confidence, and future success.',
                   style: GoogleFonts.inter(
                     fontSize: 15,
-                    color: MemberTheme.mDarkCharcoal.withOpacity(0.65),
+                    color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.65),
                     height: 1.45,
                   ),
                 ),
@@ -73,17 +80,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
               const Spacer(flex: 3),
 
-              // Custom Onboarding Play/CTA button
+              // Custom Onboarding CTA button
               GestureDetector(
                 onTap: () {
-                  setState(() {
-                    _showOnboarding = false;
-                  });
-                  // Route to login screen if not authenticated
-                  if (!authState.isAuthenticated) {
-                    context.go('/login');
-                  } else {
+                  if (authState.isAuthenticated) {
                     context.go('/home');
+                  } else {
+                    context.go('/login');
                   }
                 },
                 child: Container(
@@ -94,7 +97,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                     borderRadius: BorderRadius.circular(32),
                     boxShadow: [
                       BoxShadow(
-                        color: MemberTheme.mSlate.withOpacity(0.35),
+                        color: MemberTheme.mSlate.withValues(alpha: 0.35),
                         blurRadius: 16,
                         offset: const Offset(0, 8),
                       ),
@@ -105,7 +108,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Left Black Circle with Play/Arrow Icon
                         Container(
                           width: 52,
                           height: 52,
@@ -119,8 +121,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                             size: 28,
                           ),
                         ),
-                        
-                        // Right bold label text
                         Text(
                           'Get Started',
                           style: GoogleFonts.spaceGrotesk(
@@ -130,8 +130,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                             letterSpacing: 0.5,
                           ),
                         ),
-                        
-                        // Spacer balance
                         const SizedBox(width: 52),
                       ],
                     ),

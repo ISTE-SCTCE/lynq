@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -5,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
+import 'package:flutter_html_to_pdf/flutter_html_to_pdf.dart';
 
 class EventDetailScreen extends ConsumerStatefulWidget {
   final int eventId;
@@ -21,6 +26,89 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _certificate;
   bool _finalized = false;
+  bool _isDownloadingCert = false;
+
+  Future<void> _downloadTemplatePdf(String url) async {
+    if (_isDownloadingCert) return;
+    setState(() => _isDownloadingCert = true);
+    try {
+      final templatePath = url.replaceFirst('template:', '');
+      
+      String templateHtmlUrl = templatePath;
+      if (!templatePath.startsWith('http')) {
+        templateHtmlUrl = await _supabase.storage.from('event_posters').createSignedUrl(templatePath, 60);
+      }
+      
+      final client = HttpClient();
+      final request = await client.getUrl(Uri.parse(templateHtmlUrl));
+      final response = await request.close();
+      String html = await response.transform(utf8.decoder).join();
+      
+      final eventTitle = _event?['title'] as String? ?? 'Event';
+      final issuedAt = _certificate?['issued_at'] != null ? DateTime.tryParse(_certificate!['issued_at']) : null;
+      final dateLabel = issuedAt != null ? '${issuedAt.day} ${_monthFull(issuedAt.month)} ${issuedAt.year}' : '';
+      
+      final auth = ref.read(authProvider);
+      final userId = auth.user?.id ?? '';
+      final certId = 'ISTE-${widget.eventId}-${userId.replaceAll('-', '').substring(0, 6).toUpperCase()}';
+
+      // ── Resolve real student name from DB ─────────────────────────────────
+      String resolvedName = '';
+
+      // Priority 1: always fetch fresh from users table
+      if (userId.isNotEmpty) {
+        try {
+          final userRow = await _supabase
+              .from('users')
+              .select('name')
+              .eq('id', userId)
+              .maybeSingle();
+          final dbName = userRow?['name'] as String?;
+          if (dbName != null && dbName.trim().isNotEmpty) {
+            resolvedName = dbName.trim();
+          }
+        } catch (_) {}
+      }
+
+      // Priority 2: student_name stored in certificate row at issuance time
+      if (resolvedName.isEmpty) {
+        final certStudentName = _certificate?['student_name'] as String?;
+        if (certStudentName != null && certStudentName.trim().isNotEmpty && certStudentName != 'Member') {
+          resolvedName = certStudentName.trim();
+        }
+      }
+
+      // Priority 3: auth profile name
+      if (resolvedName.isEmpty && auth.name.isNotEmpty) {
+        resolvedName = auth.name;
+      }
+
+      if (resolvedName.isEmpty) resolvedName = 'Member';
+      // ─────────────────────────────────────────────────────────────────────
+      
+      html = html.replaceAll('{{student_name}}', resolvedName);
+      html = html.replaceAll('{{event_name}}', eventTitle);
+      html = html.replaceAll('{{date}}', dateLabel);
+      html = html.replaceAll('{{certificate_id}}', certId);
+      
+      final dir = await getApplicationDocumentsDirectory();
+      final targetPath = dir.path;
+      final targetFileName = 'Certificate_${eventTitle.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_')}';
+      
+      final generatedPdfFile = await FlutterHtmlToPdf.convertFromHtmlContent(
+        html, 
+        targetPath, 
+        targetFileName
+      );
+      
+      await OpenFile.open(generatedPdfFile.path);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to generate PDF: $e')));
+    } finally {
+      if (mounted) setState(() => _isDownloadingCert = false);
+    }
+  }
+
 
   static const _terracotta = Color(0xFFD97D55);
   static const _cream = Color(0xFFF4E9D7);
@@ -67,9 +155,9 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
       if (eventData != null) {
         final allowedRoles = eventData['allowed_roles'];
-        if (allowedRoles != null && (allowedRoles as List).isNotEmpty) {
+        if (allowedRoles is List && allowedRoles.isNotEmpty) {
           final userRole = auth.role;
-          allowed = (allowedRoles as List<dynamic>)
+          allowed = allowedRoles
               .map((r) => r.toString())
               .contains(userRole);
         }
@@ -321,8 +409,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                   ),
                   const SizedBox(height: 24),
                   // Certificate section
-                  if (isPast && _isAttended) ..._buildCertificateSection(),
-                  if (isPast && _isAttended) const SizedBox(height: 24),
+                  if (_certificate != null || (_finalized && _isAttended)) ..._buildCertificateSection(),
+                  if (_certificate != null || (_finalized && _isAttended)) const SizedBox(height: 24),
                   // Description
                   if (event['description'] != null && event['description'].toString().isNotEmpty) ...[
                     Text('About',
@@ -462,9 +550,17 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication),
-                        icon: const Icon(Icons.visibility_rounded, size: 16),
-                        label: Text('View', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                        onPressed: () {
+                          if (certUrl.startsWith('template:') || certUrl.toLowerCase().contains('.html')) {
+                            _downloadTemplatePdf(certUrl);
+                          } else {
+                            launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: _isDownloadingCert 
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+                            : const Icon(Icons.visibility_rounded, size: 16),
+                        label: Text(_isDownloadingCert ? 'Loading...' : 'View', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: navyColor,
                           side: BorderSide(color: navyColor.withValues(alpha: 0.5)),
@@ -477,9 +573,17 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication),
-                        icon: const Icon(Icons.download_rounded, size: 16),
-                        label: Text('Download', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+                        onPressed: () {
+                          if (certUrl.startsWith('template:') || certUrl.toLowerCase().contains('.html')) {
+                            _downloadTemplatePdf(certUrl);
+                          } else {
+                            launchUrl(Uri.parse(certUrl), mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        icon: _isDownloadingCert
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : const Icon(Icons.download_rounded, size: 16),
+                        label: Text(_isDownloadingCert ? 'Loading...' : 'Download', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: tealColor,
                           foregroundColor: Colors.white,

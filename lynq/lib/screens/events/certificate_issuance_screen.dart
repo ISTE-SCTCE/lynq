@@ -1,13 +1,8 @@
-import 'dart:io';
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -23,66 +18,108 @@ class CertificateIssuanceScreen extends StatefulWidget {
 class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   final _supabase = Supabase.instance.client;
 
-  // State
+  // ── State ─────────────────────────────────────────────────────────────────
   bool _isLoading = true;
   bool _isProcessing = false;
-  int _attendeeCount = 0;
-  int _alreadyIssued = 0;
+
+  /// All attendees fetched from `attendance` JOIN `users`.
   List<Map<String, dynamic>> _attendees = [];
 
-  // Template config
-  String? _templateLocalPath;
-  Uint8List? _templateBytes;
-  String? _uploadedTemplateUrl;
-  double _nameX = 0.5; // Relative X (0.0–1.0)
-  double _nameY = 0.5; // Relative Y (0.0–1.0)
-  int _fontSize = 42;
-  Color _textColor = const Color(0xFF1A1A1A);
+  /// IDs of attendees who already have a certificate for this event.
+  Set<String> _alreadyIssuedIds = {};
 
-  // Progress
+  // ── Template config ────────────────────────────────────────────────────────
+  String? _uploadedTemplateUrl;
+  Uint8List? _pickedHtmlBytes;
+  String? _pickedHtmlName;
+
+  // ── Progress ────────────────────────────────────────────────────────────────
   int _processedCount = 0;
   String _progressMessage = '';
 
+  // ── Result state (set after a publish run) ─────────────────────────────────
+  int? _lastSuccessCount;
+  bool _isCompleted = false;
+
+  // ── Derived counts ──────────────────────────────────────────────────────────
+  int get _attendeeCount => _attendees.length;
+  int get _issuedCount => _alreadyIssuedIds.length;
+  int get _pendingCount => _attendeeCount - _issuedCount;
+
+  // ── Lifecycle ────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
-    _loadEventStats();
+    _loadStats();
   }
 
-  Future<void> _loadEventStats() async {
+  // ── Data loading ─────────────────────────────────────────────────────────────
+  Future<void> _loadStats() async {
+    setState(() {
+      _isLoading = true;
+      _lastSuccessCount = null;
+    });
+
     try {
-      // Fetch attendees with their user info
+      // 1. Fetch event template config
+      final eventRow = await _supabase
+          .from('events')
+          .select('template_url, attendance_finalized')
+          .eq('id', widget.event.id)
+          .maybeSingle();
+
+      // 2. Fetch attendance rows
       final attendanceRows = await _supabase
           .from('attendance')
-          .select('user_id, users(id, name, roll_number, branch)')
+          .select('user_id')
           .eq('event_id', widget.event.id);
 
       final rows = (attendanceRows as List).cast<Map<String, dynamic>>();
 
-      // Check already issued
-      final issued = await _supabase
+      // 3. Fetch user info for unique user_ids
+      final userIds = rows.map((r) => r['user_id'] as String).toSet().toList();
+      Map<String, Map<String, dynamic>> usersMap = {};
+      if (userIds.isNotEmpty) {
+        final usersRows = await _supabase
+            .from('users')
+            .select('id, name, roll_number, branch')
+            .inFilter('id', userIds);
+        for (final u in (usersRows as List)) {
+          usersMap[u['id'] as String] = u as Map<String, dynamic>;
+        }
+      }
+
+      // Build structured attendees list
+      final List<Map<String, dynamic>> attendeesList = [];
+      // Deduplicate user_ids for certificate generation per event
+      final Set<String> seenUserIds = {};
+      for (final r in rows) {
+        final uid = r['user_id'] as String;
+        if (!seenUserIds.contains(uid)) {
+          seenUserIds.add(uid);
+          attendeesList.add({
+            'user_id': uid,
+            'users': usersMap[uid],
+          });
+        }
+      }
+
+      // 4. Fetch which user_ids already have a certificate for this event
+      final issuedRows = await _supabase
           .from('certificates')
           .select('user_id')
           .eq('event_id', widget.event.id);
 
-      // Check if a template config already exists
-      final configRows = await _supabase
-          .from('event_certificate_config')
-          .select()
-          .eq('event_id', widget.event.id)
-          .maybeSingle();
+      final issuedIds = ((issuedRows as List).cast<Map<String, dynamic>>())
+          .map((r) => r['user_id'] as String)
+          .toSet();
 
       if (mounted) {
         setState(() {
-          _attendees = rows;
-          _attendeeCount = rows.length;
-          _alreadyIssued = (issued as List).length;
-          if (configRows != null) {
-            _uploadedTemplateUrl = configRows['template_url'] as String?;
-            _nameX = (configRows['name_x'] as num?)?.toDouble() ?? 0.5;
-            _nameY = (configRows['name_y'] as num?)?.toDouble() ?? 0.5;
-            _fontSize = configRows['font_size'] as int? ?? 42;
-          }
+          _attendees = attendeesList;
+          _alreadyIssuedIds = issuedIds;
+          _uploadedTemplateUrl = eventRow?['template_url'] as String?;
+          _isCompleted = eventRow?['attendance_finalized'] as bool? ?? false;
           _isLoading = false;
         });
       }
@@ -92,57 +129,62 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     }
   }
 
-  Future<void> _pickTemplate() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['png', 'jpg', 'jpeg'],
-      withData: true,
-    );
-    if (result != null && result.files.single.bytes != null) {
-      setState(() {
-        _templateBytes = result.files.single.bytes;
-        _templateLocalPath = result.files.single.name;
-        _uploadedTemplateUrl = null; // reset uploaded url since we have a new file
-      });
+  // ── HTML Template Pick / Upload ──────────────────────────────────────────
+  Future<void> _pickHtmlTemplate() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['html'],
+        withData: true,
+      );
+
+      if (result != null && result.files.single.bytes != null) {
+        setState(() {
+          _pickedHtmlBytes = result.files.single.bytes;
+          _pickedHtmlName = result.files.single.name;
+        });
+      }
+    } catch (e) {
+      _showSnack('Error picking file: $e', isError: true);
     }
   }
 
-  Future<void> _uploadTemplateAndSaveConfig() async {
-    if (_templateBytes == null) {
-      _showSnack('Please pick a certificate template image first.', isError: true);
+  Future<void> _uploadHtmlTemplate() async {
+    if (_pickedHtmlBytes == null) {
+      _showSnack('Please select an HTML file first.', isError: true);
       return;
     }
 
     setState(() {
       _isProcessing = true;
-      _progressMessage = 'Uploading template...';
+      _progressMessage = 'Uploading HTML template…';
     });
 
     try {
-      final fileName = 'template_event_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final fileName = 'template_event_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.html';
+      final path = 'templates/$fileName';
+
+      // Upload to event_posters storage bucket (matching event_form_screen)
       await _supabase.storage
-          .from('certificate-templates')
-          .uploadBinary(fileName, _templateBytes!, fileOptions: const FileOptions(upsert: true, contentType: 'image/png'));
+          .from('event_posters')
+          .uploadBinary(path, _pickedHtmlBytes!, fileOptions: const FileOptions(contentType: 'text/html'));
 
-      final url = _supabase.storage.from('certificate-templates').getPublicUrl(fileName);
+      final url = _supabase.storage.from('event_posters').getPublicUrl(path);
 
-      // Save config
-      await _supabase.from('event_certificate_config').upsert({
-        'event_id': widget.event.id,
-        'template_url': url,
-        'name_x': _nameX,
-        'name_y': _nameY,
-        'font_size': _fontSize,
-        'text_color': '#${_textColor.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
-        'created_by': _supabase.auth.currentUser?.id,
-      }, onConflict: 'event_id');
+      // Update the events table template_url
+      await _supabase
+          .from('events')
+          .update({'template_url': url})
+          .eq('id', widget.event.id);
 
       setState(() {
         _uploadedTemplateUrl = url;
+        _pickedHtmlBytes = null;
+        _pickedHtmlName = null;
         _isProcessing = false;
         _progressMessage = '';
       });
-      _showSnack('Template saved!');
+      _showSnack('HTML template saved successfully!');
     } catch (e) {
       setState(() {
         _isProcessing = false;
@@ -152,9 +194,38 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     }
   }
 
-  Future<void> _issueCertificates() async {
+  Future<void> _finalizeEvent() async {
+    setState(() {
+      _isProcessing = true;
+      _progressMessage = 'Finalizing event…';
+    });
+    try {
+      await _supabase
+          .from('events')
+          .update({'attendance_finalized': true})
+          .eq('id', widget.event.id);
+      
+      setState(() {
+        _isCompleted = true;
+      });
+      
+      _showSnack('Event marked as Completed!');
+    } catch (e) {
+      _showSnack('Failed to finalize event: $e', isError: true);
+    } finally {
+      await _loadStats();
+      debugPrint('[Publish Debug] _isCompleted: $_isCompleted, templateUrl: $_uploadedTemplateUrl, attendees: $_attendeeCount, pending: $_pendingCount');
+      setState(() {
+        _isProcessing = false;
+        _progressMessage = '';
+      });
+    }
+  }
+
+  // ── Publish certificates ──────────────────────────────────────────────────
+  Future<void> _publishCertificates() async {
     if (_uploadedTemplateUrl == null) {
-      _showSnack('Please upload a template first.', isError: true);
+      _showSnack('Please upload an HTML template first.', isError: true);
       return;
     }
     if (_attendees.isEmpty) {
@@ -162,21 +233,32 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       return;
     }
 
+    final eligible = _attendees.where((row) {
+      final uid = row['user_id'] as String?;
+      return uid != null && !_alreadyIssuedIds.contains(uid);
+    }).toList();
+
+    if (eligible.isEmpty) {
+      _showSnack('All $_attendeeCount attendees already have certificates.', isError: false);
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: Text('Issue Certificates?', style: GoogleFonts.spaceGrotesk(color: Colors.white)),
+        title: Text('Publish Certificates?', style: GoogleFonts.spaceGrotesk(color: Colors.white)),
         content: Text(
-          'This will generate personalized certificates for $_attendeeCount attendees of "${widget.event.title}". This may take a moment.',
-          style: GoogleFonts.inter(color: Colors.white60),
+          'This will generate HTML certificates for ${eligible.length} eligible attendee${eligible.length == 1 ? '' : 's'} of "${widget.event.title}".'
+          '${_issuedCount > 0 ? '\n\n$_issuedCount attendee${_issuedCount == 1 ? '' : 's'} already have certificates and will be skipped.' : ''}',
+          style: GoogleFonts.inter(color: Colors.white60, height: 1.5),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Issue All'),
+            child: Text('Publish ${eligible.length}', style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -187,14 +269,16 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     setState(() {
       _isProcessing = true;
       _processedCount = 0;
-      _progressMessage = 'Starting certificate generation...';
+      _progressMessage = 'Starting certificate generation…';
+      _lastSuccessCount = null;
     });
 
     int successCount = 0;
-    int skipCount = 0;
+    int errorCount = 0;
+    final total = eligible.length;
 
-    for (int i = 0; i < _attendees.length; i++) {
-      final row = _attendees[i];
+    for (int i = 0; i < eligible.length; i++) {
+      final row = eligible[i];
       final userMap = row['users'] as Map<String, dynamic>?;
       final userId = row['user_id'] as String?;
       final userName = userMap?['name'] as String? ?? 'Member';
@@ -204,49 +288,23 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       if (mounted) {
         setState(() {
           _processedCount = i + 1;
-          _progressMessage = 'Generating for $userName (${i + 1}/$_attendeeCount)...';
+          _progressMessage = 'Publishing for $userName (${i + 1}/$total)…';
         });
       }
 
       try {
-        // Check if already issued
-        final existing = await _supabase
-            .from('certificates')
-            .select('id')
-            .eq('event_id', widget.event.id)
-            .eq('user_id', userId)
-            .limit(1);
+        final finalCertUrl = 'template:$_uploadedTemplateUrl';
+        await Future.delayed(const Duration(milliseconds: 30));
 
-        if ((existing as List).isNotEmpty) {
-          skipCount++;
-          continue;
-        }
-
-        // Generate personalized certificate image
-        final certBytes = await _generateCertificate(
-          templateUrl: _uploadedTemplateUrl!,
-          studentName: userName,
-        );
-
-        if (certBytes == null) continue;
-
-        // Upload to issued-certificates bucket
-        final certFileName = 'event_${widget.event.id}/user_$userId.png';
-        await _supabase.storage.from('issued-certificates').uploadBinary(
-              certFileName,
-              certBytes,
-              fileOptions: const FileOptions(upsert: true, contentType: 'image/png'),
-            );
-
-        final certUrl = _supabase.storage.from('issued-certificates').getPublicUrl(certFileName);
-
-        // Insert into certificates table
+        // Upsert into certificates table
         await _supabase.from('certificates').upsert({
           'user_id': userId,
           'event_id': widget.event.id,
-          'title': 'Certificate of Participation - ${widget.event.title}',
-          'description': 'Awarded for attending ${widget.event.title} on ${_formatDate(widget.event.date)}',
-          'file_url': certUrl,
+          'student_name': userName,
+          'title': 'Certificate of Participation — ${widget.event.title}',
+          'description':
+              'Awarded for attending ${widget.event.title} on ${_formatDate(widget.event.date)}',
+          'file_url': finalCertUrl,
           'issued_by': _supabase.auth.currentUser?.id,
           'issued_at': DateTime.now().toIso8601String(),
         }, onConflict: 'user_id,event_id');
@@ -254,84 +312,32 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         successCount++;
       } catch (e) {
         debugPrint('Error issuing cert for $userId: $e');
+        errorCount++;
       }
     }
+
+    // Re-fetch from DB so counts are always accurate
+    await _loadStats();
 
     if (mounted) {
       setState(() {
         _isProcessing = false;
         _progressMessage = '';
-        _alreadyIssued = _alreadyIssued + successCount;
+        _lastSuccessCount = successCount;
       });
-      _showSnack('Done! Issued: $successCount, Skipped (already issued): $skipCount');
+
+      final parts = <String>['✓ Published $successCount certificate${successCount == 1 ? '' : 's'}'];
+      if (_issuedCount > 0) parts.add('$_issuedCount already existed');
+      if (errorCount > 0) parts.add('$errorCount failed');
+      _showSnack(parts.join(' · '), isError: errorCount > 0 && successCount == 0);
     }
   }
 
-  // Generates a personalized certificate by overlaying the student's name on the template.
-  Future<Uint8List?> _generateCertificate({
-    required String templateUrl,
-    required String studentName,
-  }) async {
-    try {
-      // Fetch template image bytes from URL
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(templateUrl));
-      final response = await request.close();
-      final templateBytes = await response.fold<List<int>>([], (prev, element) => prev..addAll(element));
-      client.close();
-
-      // Decode the template image
-      final codec = await ui.instantiateImageCodec(Uint8List.fromList(templateBytes));
-      final frame = await codec.getNextFrame();
-      final templateImage = frame.image;
-      final imgWidth = templateImage.width.toDouble();
-      final imgHeight = templateImage.height.toDouble();
-
-      // Draw onto canvas
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, imgWidth, imgHeight));
-
-      // Draw template
-      canvas.drawImage(templateImage, Offset.zero, Paint());
-
-      // Draw student name
-      final nameX = _nameX * imgWidth;
-      final nameY = _nameY * imgHeight;
-
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: studentName,
-          style: TextStyle(
-            fontSize: _fontSize.toDouble(),
-            fontWeight: FontWeight.bold,
-            color: _textColor,
-            letterSpacing: 1.5,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-      );
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset(nameX - textPainter.width / 2, nameY - textPainter.height / 2),
-      );
-
-      // Convert to image bytes
-      final picture = recorder.endRecording();
-      final img = await picture.toImage(imgWidth.toInt(), imgHeight.toInt());
-      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-
-      return byteData?.buffer.asUint8List();
-    } catch (e) {
-      debugPrint('Error generating certificate: $e');
-      return null;
-    }
-  }
-
+  // ── Helpers ───────────────────────────────────────────────────────────────
   String _formatDate(DateTime? date) {
     if (date == null) return '';
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
@@ -340,16 +346,27 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg, style: GoogleFonts.inter()),
       backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
+      behavior: SnackBarBehavior.floating,
     ));
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Issue Certificates', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+        title: Text('Publish Certificates',
+            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
+        actions: [
+          if (!_isLoading && !_isProcessing)
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Refresh stats',
+              onPressed: _loadStats,
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -360,139 +377,55 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Event info card
+                      // ── Event info card ──────────────────────────────────
                       _buildEventInfoCard(isDark),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                      // Stats row
+                      // ── Completion status banner ─────────────────────────
+                      if (!_isCompleted)
+                        _buildLockedBanner()
+                      else
+                        _buildCompletedBanner(),
+                      const SizedBox(height: 20),
+
+                      // ── Stats row ────────────────────────────────────────
                       _buildStatsRow(isDark),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
 
-                      // Step 1: Template Upload
-                      _buildSectionTitle('Step 1: Upload Certificate Template', isDark),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Upload a PNG/JPG image of your blank certificate. The student\'s name will be printed on it.',
-                        style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white54 : Colors.black54),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildTemplatePickerCard(isDark),
-                      const SizedBox(height: 24),
-
-                      // Step 2: Name Position
-                      _buildSectionTitle('Step 2: Name Position', isDark),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Set where the student\'s name should appear (relative position on the certificate).',
-                        style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white54 : Colors.black54),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildPositionConfig(isDark),
-                      const SizedBox(height: 24),
-
-                      // Save template config button
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _isProcessing ? null : _uploadTemplateAndSaveConfig,
-                          icon: const Icon(Icons.cloud_upload_rounded),
-                          label: Text('Save Template Config', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            foregroundColor: AppTheme.primary,
-                            side: BorderSide(color: AppTheme.primary),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Step 3: Issue Certificates
-                      _buildSectionTitle('Step 3: Issue to All Attendees', isDark),
-                      const SizedBox(height: 8),
-                      if (_uploadedTemplateUrl != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.check_circle_outline, color: Colors.green, size: 18),
-                              const SizedBox(width: 8),
-                              Text('Template ready', style: GoogleFonts.inter(color: Colors.green, fontSize: 13)),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+                      // ── Last publish result ───────────────────────────────
+                      if (_lastSuccessCount != null) ...[
+                        _buildResultBanner(isDark),
+                        const SizedBox(height: 20),
                       ],
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: (_isProcessing || _uploadedTemplateUrl == null || _attendeeCount == 0)
-                              ? null
-                              : _issueCertificates,
-                          icon: const Icon(Icons.workspace_premium_rounded),
-                          label: Text(
-                            'Issue Certificates to $_attendeeCount Attendees',
-                            style: GoogleFonts.inter(fontWeight: FontWeight.w700),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                        ),
+
+                      // ── HTML Template Management ────────────────────────
+                      _buildSectionTitle('HTML Certificate Template', isDark),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Configure the HTML layout file which will render personalized certificates dynamically for the attendees.',
+                        style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: isDark ? Colors.white54 : Colors.black54),
                       ),
-                      const SizedBox(height: 40),
+                      const SizedBox(height: 16),
+                      _buildHtmlTemplateCard(isDark),
+                      const SizedBox(height: 24),
+
+                      // ── Publish CTA ──────────────────────────────────────
+                      _buildPublishSection(isDark),
+                      const SizedBox(height: 48),
                     ],
                   ),
                 ),
 
-                // Processing overlay
-                if (_isProcessing)
-                  Container(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    child: Center(
-                      child: GlassCard(
-                        child: Padding(
-                          padding: const EdgeInsets.all(28),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const CircularProgressIndicator(),
-                              const SizedBox(height: 20),
-                              Text(
-                                _progressMessage,
-                                style: GoogleFonts.inter(fontSize: 14, color: Colors.white70),
-                                textAlign: TextAlign.center,
-                              ),
-                              if (_attendeeCount > 0) ...[
-                                const SizedBox(height: 12),
-                                LinearProgressIndicator(
-                                  value: _attendeeCount > 0 ? _processedCount / _attendeeCount : 0,
-                                  backgroundColor: Colors.white12,
-                                  color: AppTheme.primary,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  '$_processedCount / $_attendeeCount',
-                                  style: GoogleFonts.spaceGrotesk(fontSize: 12, color: Colors.white38),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                // ── Processing overlay ────────────────────────────────────
+                if (_isProcessing) _buildProcessingOverlay(),
               ],
             ),
     );
   }
+
+  // ── Widget builders ───────────────────────────────────────────────────────
 
   Widget _buildEventInfoCard(bool isDark) {
     return GlassCard(
@@ -514,15 +447,119 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(widget.event.title,
-                      style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16)),
+                      style: GoogleFonts.spaceGrotesk(
+                          fontWeight: FontWeight.bold, fontSize: 16)),
                   if (widget.event.date != null)
                     Text(_formatDate(widget.event.date),
-                        style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white54 : Colors.black54)),
+                        style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: isDark ? Colors.white54 : Colors.black54)),
                 ],
               ),
             ),
+            if (_isCompleted)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.check_circle_rounded, size: 13, color: Colors.green),
+                    const SizedBox(width: 5),
+                    Text('Completed',
+                        style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.green)),
+                  ],
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLockedBanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.lock_clock_rounded, color: Colors.orange, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Certificate Publishing Locked',
+                    style: GoogleFonts.spaceGrotesk(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: Colors.orange)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Certificates can only be published after the event ends and attendance is finalised. '
+            'Mark the event as completed below to enable publishing.',
+            style: GoogleFonts.inter(
+                fontSize: 12,
+                color: Colors.orange.withValues(alpha: 0.85),
+                height: 1.5),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isProcessing ? null : _finalizeEvent,
+              icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+              label: Text('Mark Event Completed', style: GoogleFonts.inter(fontWeight: FontWeight.bold, fontSize: 13)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade800,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompletedBanner() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.green.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.verified_rounded, color: Colors.green, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Event completed — you can now publish certificates to all attendees.',
+              style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: Colors.green,
+                  fontWeight: FontWeight.w500,
+                  height: 1.4),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -530,11 +567,15 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   Widget _buildStatsRow(bool isDark) {
     return Row(
       children: [
-        Expanded(child: _buildStatChip('Attendees', _attendeeCount, Icons.people_rounded, Colors.blueAccent, isDark)),
+        Expanded(child: _buildStatChip(
+            'Attendees', _attendeeCount, Icons.people_rounded, Colors.blueAccent, isDark)),
         const SizedBox(width: 12),
-        Expanded(child: _buildStatChip('Issued', _alreadyIssued, Icons.workspace_premium_rounded, Colors.amber, isDark)),
+        Expanded(child: _buildStatChip(
+            'Issued', _issuedCount, Icons.workspace_premium_rounded, Colors.amber, isDark)),
         const SizedBox(width: 12),
-        Expanded(child: _buildStatChip('Pending', _attendeeCount - _alreadyIssued, Icons.pending_rounded, Colors.orangeAccent, isDark)),
+        Expanded(child: _buildStatChip(
+            'Pending', _pendingCount < 0 ? 0 : _pendingCount,
+            Icons.pending_rounded, Colors.orangeAccent, isDark)),
       ],
     );
   }
@@ -547,11 +588,281 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 6),
-            Text('$value', style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.w800)),
-            Text(label, style: GoogleFonts.inter(fontSize: 11, color: isDark ? Colors.white38 : Colors.black45)),
+            Text('$value',
+                style: GoogleFonts.spaceGrotesk(
+                    fontSize: 22, fontWeight: FontWeight.w800)),
+            Text(label,
+                style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: isDark ? Colors.white38 : Colors.black45)),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildResultBanner(bool isDark) {
+    final success = _lastSuccessCount ?? 0;
+    final allDone = success == 0 && _issuedCount == _attendeeCount;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.green.withValues(alpha: 0.12),
+            Colors.green.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.green.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Colors.green, size: 28),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  allDone
+                      ? 'All certificates already published'
+                      : 'Published $success certificate${success == 1 ? '' : 's'}',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$_issuedCount of $_attendeeCount attendees now have certificates.',
+                  style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: isDark ? Colors.white54 : Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHtmlTemplateCard(bool isDark) {
+    final hasUploadedTemplate = _uploadedTemplateUrl != null;
+
+    return GlassCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasUploadedTemplate) ...[
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.green, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('HTML Template Configured',
+                            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'An active HTML template is attached to this event.',
+                          style: GoogleFonts.inter(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('HTML Template Missing',
+                            style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.orange)),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Upload an HTML file to enable certificate issuance.',
+                          style: GoogleFonts.inter(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            if (_pickedHtmlName != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.file_present_rounded, color: Colors.blueAccent, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _pickedHtmlName!,
+                        style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.blueAccent),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, size: 18, color: isDark ? Colors.white54 : Colors.black54),
+                      onPressed: () {
+                        setState(() {
+                          _pickedHtmlBytes = null;
+                          _pickedHtmlName = null;
+                        });
+                      },
+                    )
+                  ],
+                ),
+              ),
+            ],
+
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isProcessing ? null : _pickHtmlTemplate,
+                    icon: const Icon(Icons.html_rounded, size: 18),
+                    label: Text(_pickedHtmlName != null ? 'Change File' : 'Pick HTML File', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      foregroundColor: AppTheme.primary,
+                      side: BorderSide(color: AppTheme.primary),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+                if (_pickedHtmlBytes != null) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isProcessing ? null : _uploadHtmlTemplate,
+                      icon: const Icon(Icons.cloud_upload_rounded, size: 18),
+                      label: Text('Save Template', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPublishSection(bool isDark) {
+    final templateReady = _uploadedTemplateUrl != null;
+
+    final canPublish = _isCompleted &&
+        templateReady &&
+        _attendeeCount > 0 &&
+        _pendingCount > 0;
+
+    Widget buildLabel() {
+      if (!_isCompleted) {
+        return Text('Event Not Yet Completed',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700));
+      }
+      if (!templateReady) {
+        return Text('Upload HTML Template First',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700));
+      }
+      if (_attendeeCount == 0) {
+        return Text('No Attendees Found',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700));
+      }
+      if (_pendingCount == 0) {
+        return Text('All Certificates Already Published',
+            style: GoogleFonts.inter(fontWeight: FontWeight.w700));
+      }
+      return Text(
+        'Publish Certificates to $_pendingCount Attendee${_pendingCount == 1 ? '' : 's'}',
+        style: GoogleFonts.inter(fontWeight: FontWeight.w700),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('Publish Certificates', isDark),
+        const SizedBox(height: 10),
+
+        if (_attendeeCount == 0 && _isCompleted) ...[
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.people_outline_rounded,
+                    color: isDark ? Colors.white38 : Colors.black38, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'No attendance records found for this event. '
+                    'Certificates cannot be issued without attendees.',
+                    style: GoogleFonts.inter(
+                        fontSize: 13,
+                        color: isDark ? Colors.white54 : Colors.black54,
+                        height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Main publish button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: (_isProcessing || !canPublish) ? null : _publishCertificates,
+            icon: const Icon(Icons.workspace_premium_rounded),
+            label: buildLabel(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: isDark
+                  ? Colors.white.withValues(alpha: 0.07)
+                  : Colors.black.withValues(alpha: 0.06),
+              disabledForegroundColor: isDark ? Colors.white30 : Colors.black26,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -562,129 +873,47 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     );
   }
 
-  Widget _buildTemplatePickerCard(bool isDark) {
-    return GestureDetector(
-      onTap: _isProcessing ? null : _pickTemplate,
-      child: GlassCard(
-        child: Container(
-          height: 160,
-          padding: const EdgeInsets.all(16),
-          child: _templateBytes != null
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.memory(_templateBytes!, fit: BoxFit.contain, width: double.infinity),
-                    ),
-                    Positioned(
-                      bottom: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.edit_rounded, size: 14, color: Colors.white),
-                          const SizedBox(width: 4),
-                          Text('Change', style: GoogleFonts.inter(fontSize: 12, color: Colors.white)),
-                        ]),
-                      ),
-                    ),
-                  ],
-                )
-              : _uploadedTemplateUrl != null
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.check_circle_rounded, color: Colors.green, size: 36),
-                        const SizedBox(height: 8),
-                        Text('Template already saved', style: GoogleFonts.inter(color: Colors.green, fontSize: 13)),
-                        const SizedBox(height: 4),
-                        Text('Tap to replace', style: GoogleFonts.inter(color: Colors.white38, fontSize: 11)),
-                      ],
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.add_photo_alternate_rounded,
-                            size: 42, color: isDark ? Colors.white24 : Colors.black26),
-                        const SizedBox(height: 10),
-                        Text('Tap to pick certificate template image',
-                            style: GoogleFonts.inter(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13)),
-                      ],
-                    ),
-        ),
-      ),
-    );
-  }
+  Widget _buildProcessingOverlay() {
+    final total = _attendees.where((r) {
+      final uid = r['user_id'] as String?;
+      return uid != null && !_alreadyIssuedIds.contains(uid);
+    }).length;
 
-  Widget _buildPositionConfig(bool isDark) {
-    return GlassCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildSliderRow('Horizontal Position (X)', _nameX, (v) => setState(() => _nameX = v), isDark),
-            const SizedBox(height: 12),
-            _buildSliderRow('Vertical Position (Y)', _nameY, (v) => setState(() => _nameY = v), isDark),
-            const SizedBox(height: 16),
-            Row(
+    return Container(
+      color: Colors.black.withValues(alpha: 0.6),
+      child: Center(
+        child: GlassCard(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Font Size', style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white54 : Colors.black54)),
-                      Slider(
-                        value: _fontSize.toDouble(),
-                        min: 20,
-                        max: 100,
-                        divisions: 80,
-                        label: '$_fontSize px',
-                        activeColor: AppTheme.primary,
-                        onChanged: (v) => setState(() => _fontSize = v.toInt()),
-                      ),
-                    ],
-                  ),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 20),
+                Text(
+                  _progressMessage,
+                  style: GoogleFonts.inter(fontSize: 14, color: Colors.white70),
+                  textAlign: TextAlign.center,
                 ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white12),
-                    borderRadius: BorderRadius.circular(8),
+                if (total > 0) ...[
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(
+                    value: total > 0 ? _processedCount / total : 0,
+                    backgroundColor: Colors.white12,
+                    color: AppTheme.primary,
                   ),
-                  child: Text('$_fontSize px', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
-                ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '$_processedCount / $total',
+                    style: GoogleFonts.spaceGrotesk(
+                        fontSize: 12, color: Colors.white38),
+                  ),
+                ],
               ],
             ),
-          ],
+          ),
         ),
       ),
-    );
-  }
-
-  Widget _buildSliderRow(String label, double value, ValueChanged<double> onChanged, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: GoogleFonts.inter(fontSize: 13, color: isDark ? Colors.white54 : Colors.black54)),
-            Text('${(value * 100).toInt()}%', style: GoogleFonts.spaceGrotesk(fontSize: 13, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Slider(
-          value: value,
-          min: 0.0,
-          max: 1.0,
-          activeColor: AppTheme.primary,
-          onChanged: onChanged,
-        ),
-      ],
     );
   }
 }

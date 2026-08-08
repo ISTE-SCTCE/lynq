@@ -18,26 +18,40 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
   List<Map<String, dynamic>> _events = [];
   bool _isLoading = true;
   DateTime _selectedDate = DateTime.now();
+  RealtimeChannel? _eventsChannel;
 
   @override
   void initState() {
     super.initState();
     _loadEvents();
+    _setupRealtime();
+  }
+
+  void _setupRealtime() {
+    _eventsChannel = _supabase.channel('public:events_mlynq');
+    _eventsChannel!.onPostgresChanges(
+      event: PostgresChangeEvent.all,
+      schema: 'public',
+      table: 'events',
+      callback: (_) {
+        if (mounted) _loadEvents();
+      },
+    ).subscribe();
+  }
+
+  @override
+  void dispose() {
+    _eventsChannel?.unsubscribe();
+    super.dispose();
   }
 
   Future<void> _loadEvents() async {
     setState(() => _isLoading = true);
     try {
       final authState = ref.read(authProvider);
-      final String userRole = authState.role;
+      final String userRole = authState.role.toLowerCase();
 
-      // Map 'user' (guest / not-iste member) → 'restricted' for event visibility,
-      // since allowed_roles uses 'restricted' as the lowest member-facing tier.
-      final String effectiveRole =
-          (userRole.isEmpty || userRole == 'user') ? 'restricted' : userRole;
-
-      // Fetch all events and filter client-side so we can also show events that
-      // have no allowed_roles restriction at all (null / empty array = visible to everyone).
+      // Fetch all events ordered by date
       final data = await _supabase
           .from('events')
           .select()
@@ -45,12 +59,15 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
 
       final all = (data as List).cast<Map<String, dynamic>>();
 
+      // Filter events visible to members (matching home screen behavior)
       final visible = all.where((e) {
-        final roles = (e['allowed_roles'] as List?)?.cast<String>() ?? [];
-        // No restriction → show to everyone
+        final roles = (e['allowed_roles'] as List?)?.map((r) => r.toString().toLowerCase()).toList() ?? [];
+        // No restriction or empty list → visible to everyone
         if (roles.isEmpty) return true;
-        // Show if the event is open to this user's effective role
-        return roles.contains(effectiveRole);
+        // Visible if open to user's role or standard member tiers
+        if (roles.contains('member') || roles.contains('restricted') || roles.contains('user')) return true;
+        if (userRole.isNotEmpty && roles.contains(userRole)) return true;
+        return true; // Default to visible so execom-created events are shown
       }).toList();
 
       if (mounted) {
@@ -60,48 +77,53 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
         });
       }
     } catch (e) {
+      debugPrint('Error loading events: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // Robust date comparison handling ISO timestamps, UTC/local conversion, and YYYY-MM-DD strings
+  bool _isSameCalendarDay(dynamic rawDate, DateTime targetDay) {
+    if (rawDate == null) return false;
+    final String s = rawDate.toString().trim();
+    if (s.isEmpty) return false;
+
+    // 1. Parse DateTime if possible
+    final dt = DateTime.tryParse(s);
+    if (dt != null) {
+      final local = dt.toLocal();
+      if (local.year == targetDay.year && local.month == targetDay.month && local.day == targetDay.day) {
+        return true;
+      }
+      if (dt.year == targetDay.year && dt.month == targetDay.month && dt.day == targetDay.day) {
+        return true;
+      }
+    }
+
+    // 2. YYYY-MM-DD string match fallback
+    final dateOnly = s.split('T').first.split(' ').first;
+    final monthStr = targetDay.month.toString().padLeft(2, '0');
+    final dayStr = targetDay.day.toString().padLeft(2, '0');
+    final targetFormatted = "${targetDay.year}-$monthStr-$dayStr";
+    return dateOnly == targetFormatted;
+  }
+
   // Filter events matching selected calendar date
   List<Map<String, dynamic>> get _eventsForSelectedDate {
-    final dateStr = "${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}";
-    return _events.where((e) {
-      final eventDate = e['date'] as String? ?? '';
-      final eventDateOnly = eventDate.split('T').first;
-      return eventDateOnly == dateStr;
-    }).toList();
+    return _events.where((e) => _isSameCalendarDay(e['date'], _selectedDate)).toList();
   }
 
   // Helper to check if a specific date has any registered events
   bool _dateHasEvents(DateTime date) {
-    final dateStr = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-    return _events.any((e) {
-      final eventDate = e['date'] as String? ?? '';
-      final eventDateOnly = eventDate.split('T').first;
-      return eventDateOnly == dateStr;
-    });
+    return _events.any((e) => _isSameCalendarDay(e['date'], date));
   }
 
   @override
   Widget build(BuildContext context) {
-    // Determine if we should shrink based on number of events today
-    final bool shouldShrink = _eventsForSelectedDate.length > 2;
-
-    // Generate dates
-    List<DateTime> daysToShow;
-    if (shouldShrink) {
-      // 2 weeks view
-      daysToShow = List.generate(14, (i) {
-        return _selectedDate.subtract(Duration(days: _selectedDate.weekday - 1)).add(Duration(days: i));
-      });
-    } else {
-      // Full month view (42 days to cover all possible month spans)
-      final firstDayOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
-      final firstCalendarDay = firstDayOfMonth.subtract(Duration(days: firstDayOfMonth.weekday - 1));
-      daysToShow = List.generate(42, (i) => firstCalendarDay.add(Duration(days: i)));
-    }
+    // Generate full month view (42 days)
+    final firstDayOfMonth = DateTime(_selectedDate.year, _selectedDate.month, 1);
+    final firstCalendarDay = firstDayOfMonth.subtract(Duration(days: firstDayOfMonth.weekday - 1));
+    final List<DateTime> daysToShow = List.generate(42, (i) => firstCalendarDay.add(Duration(days: i)));
 
     return Scaffold(
       backgroundColor: MemberTheme.mBackground,
@@ -152,7 +174,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 22,
                       fontWeight: FontWeight.w700,
-                      color: MemberTheme.mDarkCharcoal.withOpacity(0.85),
+                      color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.85),
                     ),
                   ),
                   Row(
@@ -182,13 +204,13 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
               const SizedBox(height: 20),
 
               // Horizontal Calendar grid view
-              _buildCalendarView(daysToShow, shouldShrink),
+              _buildCalendarView(daysToShow),
 
               const SizedBox(height: 28),
 
               // Active Schedule Header
               Text(
-                'Today\'s Classes & Events',
+                'Events for ${_selectedDate.day} ${_monthYearString(_selectedDate).split(' ').first}',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
@@ -198,17 +220,24 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
 
               const SizedBox(height: 16),
 
-              // Detailed events list cards
+              // Detailed events list cards with RefreshIndicator
               Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator(color: MemberTheme.mSlate))
-                    : _eventsForSelectedDate.isEmpty
-                        ? _buildEmptyState()
-                        : ListView.builder(
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: _eventsForSelectedDate.length,
-                            itemBuilder: (ctx, i) => _buildScheduleCard(_eventsForSelectedDate[i], ref.watch(authProvider).membershipId.isNotEmpty),
-                          ),
+                child: RefreshIndicator(
+                  onRefresh: _loadEvents,
+                  color: MemberTheme.mSlate,
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator(color: MemberTheme.mSlate))
+                      : _eventsForSelectedDate.isEmpty
+                          ? _buildEmptyState()
+                          : ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                              itemCount: _eventsForSelectedDate.length,
+                              itemBuilder: (ctx, i) => _buildScheduleCard(
+                                _eventsForSelectedDate[i],
+                                ref.watch(authProvider).membershipId.isNotEmpty,
+                              ),
+                            ),
+                ),
               ),
             ],
           ),
@@ -217,15 +246,15 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
     );
   }
 
-  Widget _buildCalendarView(List<DateTime> days, bool isShrunk) {
+  Widget _buildCalendarView(List<DateTime> days) {
     const weekdaysLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.5),
+        color: Colors.white.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: MemberTheme.mDarkCharcoal.withOpacity(0.06)),
+        border: Border.all(color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.06)),
       ),
       child: GridView.builder(
         shrinkWrap: true,
@@ -255,7 +284,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      color: MemberTheme.mDarkCharcoal.withOpacity(0.4),
+                      color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.4),
                     ),
                   ),
                 if (index < 7) const SizedBox(height: 6),
@@ -281,7 +310,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                         fontWeight: FontWeight.w700,
                         color: isSelected
                             ? Colors.white
-                            : (isCurrentMonth ? MemberTheme.mDarkCharcoal : MemberTheme.mDarkCharcoal.withOpacity(0.2)),
+                            : (isCurrentMonth ? MemberTheme.mDarkCharcoal : MemberTheme.mDarkCharcoal.withValues(alpha: 0.2)),
                       ),
                     ),
                   ),
@@ -311,7 +340,7 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
           border: Border.all(color: MemberTheme.mDarkCharcoal, width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: MemberTheme.mSlate.withOpacity(0.2),
+              color: MemberTheme.mSlate.withValues(alpha: 0.2),
               blurRadius: 10,
               offset: const Offset(0, 4),
             )
@@ -339,27 +368,31 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
                 const SizedBox(width: 14),
                 
                 // Details Column
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      event['title'] as String? ?? 'Workshop',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        event['title'] as String? ?? 'Workshop',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$location • $priceStr',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.75),
-                        fontWeight: FontWeight.w500,
+                      const SizedBox(height: 4),
+                      Text(
+                        '$location • $priceStr',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -377,43 +410,49 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.6),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.event_note_rounded, size: 48, color: MemberTheme.mSlate),
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+      children: [
+        const SizedBox(height: 40),
+        Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.event_note_rounded, size: 48, color: MemberTheme.mSlate),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No events scheduled for this day',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Tap highlighted dates on the calendar above',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: MemberTheme.mDarkCharcoal.withValues(alpha: 0.4),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Text(
-            'No courses or events scheduled',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: MemberTheme.mDarkCharcoal.withOpacity(0.6),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Tap another date on the calendar above',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              color: MemberTheme.mDarkCharcoal.withOpacity(0.4),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   String _monthYearString(DateTime date) {
     const months = [
-      'Januar', 'Februar', 'March', 'April', 'May', 'June',
+      'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
     return '${months[date.month - 1]} ${date.year}';

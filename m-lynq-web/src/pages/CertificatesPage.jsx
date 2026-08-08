@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DashboardLayout from '../components/DashboardLayout';
-import { Award, Calendar, Download, Eye, AlertCircle } from 'lucide-react';
+import { Award, Calendar, Download, Eye, AlertCircle, Loader } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -94,6 +96,7 @@ function SkeletonCard() {
 
 // ── Certificate card ───────────────────────────────────────────────────────────
 function CertCard({ cert, navigate }) {
+  const auth = useAuth();
   const category   = cert._category;
   const eventTitle = cert._eventTitle;
   const eventDate  = cert._eventDate;
@@ -104,6 +107,7 @@ function CertCard({ cert, navigate }) {
   const dateLabel  = eventDate ? formatDate(eventDate) : issuedAt;
 
   const [shareMsg, setShareMsg] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const handleShare = () => {
     if (!url) return;
@@ -114,6 +118,101 @@ function CertCard({ cert, navigate }) {
         setShareMsg('Link copied!');
         setTimeout(() => setShareMsg(''), 2000);
       }).catch(() => {});
+    }
+  };
+
+  const handleDownload = async (e) => {
+    e.stopPropagation();
+    if (!url) return;
+    if (url.startsWith('template:')) {
+      if (isDownloading) return;
+      setIsDownloading(true);
+      try {
+        const templatePath = url.replace('template:', '');
+        
+        // Ensure template is treated as a URL (it might already be a public URL if generated locally)
+        let templateHtmlUrl = templatePath;
+        if (!templatePath.startsWith('http')) {
+          const { data } = await supabase.storage.from('event_posters').createSignedUrl(templatePath, 60);
+          templateHtmlUrl = data?.signedUrl || templatePath;
+        }
+
+        const res = await fetch(templateHtmlUrl);
+        let html = await res.text();
+        
+        const certId = `ISTE-${eventId}-${(cert.user_id || '').replace(/-/g, '').substring(0,6).toUpperCase()}`;
+
+        // ── Resolve live student name from DB/Context ────────────────────
+        let resolvedName = '';
+        const userId = cert.user_id;
+
+        // Priority 1: live fetch from users table
+        if (userId) {
+          try {
+            const { data: userRow } = await supabase
+              .from('users')
+              .select('name')
+              .eq('id', userId)
+              .maybeSingle();
+            if (userRow?.name && userRow.name.trim() !== '') {
+              resolvedName = userRow.name.trim();
+            }
+          } catch (e) {
+            console.error('Error fetching live name:', e);
+          }
+        }
+
+        // Priority 2: stored student_name
+        if (!resolvedName && cert.student_name && cert.student_name !== 'Member') {
+          resolvedName = cert.student_name.trim();
+        }
+
+        // Priority 3: fallback to auth profile name
+        if (!resolvedName && auth?.name) {
+          resolvedName = auth.name.trim();
+        }
+
+        if (!resolvedName) resolvedName = 'Member';
+        // ─────────────────────────────────────────────────────────────────
+
+        // Replace placeholders
+        html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{event_name}}', eventTitle);
+        html = html.replaceAll('{{date}}', dateLabel);
+        html = html.replaceAll('{{certificate_id}}', certId);
+
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.top = '-9999px';
+        container.style.width = '1122px'; // A4 landscape at 96 DPI
+        container.style.height = '793px';
+        document.body.appendChild(container);
+
+        // Allow layout to settle and remote fonts/images to load
+        await new Promise(r => setTimeout(r, 1000));
+
+        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const pdf = new jsPDF({
+          orientation: 'landscape',
+          unit: 'px',
+          format: [1122, 793]
+        });
+        pdf.addImage(imgData, 'PNG', 0, 0, 1122, 793);
+        pdf.save(`Certificate_${eventTitle.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+        
+        document.body.removeChild(container);
+      } catch (err) {
+        console.error('PDF Generation error:', err);
+        alert('Failed to generate PDF from template.');
+      } finally {
+        setIsDownloading(false);
+      }
+    } else {
+      window.open(url, '_blank');
     }
   };
 
@@ -182,17 +281,19 @@ function CertCard({ cert, navigate }) {
             </button>
             <div style={{ width: 1, background: T.divider }} />
             <button
-              onClick={e => { e.stopPropagation(); window.open(url, '_blank'); }}
+              onClick={handleDownload}
+              disabled={isDownloading}
               style={{
-                flex: 1, padding: '10px 0', background: 'none', border: 'none', cursor: 'pointer',
+                flex: 1, padding: '10px 0', background: 'none', border: 'none', cursor: isDownloading ? 'wait' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 600, color: T.teal,
                 transition: 'background 0.15s',
+                opacity: isDownloading ? 0.6 : 1,
               }}
-              onMouseEnter={e => e.currentTarget.style.background = `${T.teal}08`}
+              onMouseEnter={e => !isDownloading && (e.currentTarget.style.background = `${T.teal}08`)}
               onMouseLeave={e => e.currentTarget.style.background = 'none'}
             >
-              <Download size={14} /> Download
+              {isDownloading ? <Loader size={14} className="animate-spin" /> : <Download size={14} />} {isDownloading ? 'Downloading...' : 'Download'}
             </button>
           </div>
         </>
@@ -257,7 +358,7 @@ export default function CertificatesPage() {
       setIsLoading(true);
       const { data } = await supabase
         .from('certificates')
-        .select('id, event_id, student_name, certificate_url, file_url, issued_at, events(id, title, date, category, type)')
+        .select('id, event_id, student_name, user_id, certificate_url, file_url, issued_at, events(id, title, date, category, type)')
         .eq('user_id', user.id)
         .order('issued_at', { ascending: false });
 

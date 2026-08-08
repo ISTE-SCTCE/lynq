@@ -10,6 +10,7 @@ ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS attendance_finalized BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS coordinator_name     TEXT,
   ADD COLUMN IF NOT EXISTS chair_name           TEXT,
+  ADD COLUMN IF NOT EXISTS template_url         TEXT,
   ADD COLUMN IF NOT EXISTS category             TEXT;
 -- category values: 'Hackathon' | 'Workshop' | 'Seminar' | 'General'
 
@@ -104,8 +105,8 @@ CREATE INDEX IF NOT EXISTS idx_events_finalized
 
 CREATE OR REPLACE FUNCTION public.get_student_certificates(p_user_id UUID)
 RETURNS TABLE (
-  id            INT,
-  event_id      INT,
+  id            UUID,
+  event_id      BIGINT,
   event_title   TEXT,
   event_date    DATE,
   category      TEXT,

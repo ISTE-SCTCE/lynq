@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DashboardLayout from '../components/DashboardLayout';
 import { ArrowLeft, Calendar, Clock, MapPin, Star, CheckCircle, Lock, DollarSign, Award, Download, Eye, Loader2 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function getTypeColor(type) {
   const t = (type || '').toLowerCase();
@@ -14,13 +16,113 @@ function getTypeColor(type) {
 }
 
 // ── Certificate section (past + attended events) ───────────────────────────────
-function CertificateSection({ certificate, finalized }) {
+function CertificateSection({ certificate, finalized, eventTitle, eventId }) {
+  const auth = useAuth();
   const url = certificate?.certificate_url || certificate?.file_url || '';
   const issuedAt = certificate?.issued_at
     ? new Date(certificate.issued_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
     : '';
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = async (e) => {
+    if (e) e.stopPropagation();
+    if (!url) return;
+
+    if (url.startsWith('template:') || url.toLowerCase().endsWith('.html') || url.toLowerCase().includes('.html?')) {
+      if (isDownloading) return;
+      setIsDownloading(true);
+      try {
+        const templatePath = url.replace('template:', '');
+        
+        let templateHtmlUrl = templatePath;
+        if (!templatePath.startsWith('http')) {
+          const { data } = await supabase.storage.from('event_posters').createSignedUrl(templatePath, 60);
+          templateHtmlUrl = data?.signedUrl || templatePath;
+        }
+
+        const res = await fetch(templateHtmlUrl);
+        let html = await res.text();
+        
+        const certId = `ISTE-${eventId}-${(certificate.user_id || '').replace(/-/g, '').substring(0,6).toUpperCase()}`;
+
+        // ── Resolve live student name from DB/Context ────────────────────
+        let resolvedName = '';
+        const userId = certificate.user_id || auth.user?.id;
+
+        // Priority 1: live fetch from users table
+        if (userId) {
+          try {
+            const { data: userRow } = await supabase
+              .from('users')
+              .select('name')
+              .eq('id', userId)
+              .maybeSingle();
+            if (userRow?.name && userRow.name.trim() !== '') {
+              resolvedName = userRow.name.trim();
+            }
+          } catch (err) {
+            console.error('Error fetching live name:', err);
+          }
+        }
+
+        // Priority 2: stored student_name
+        if (!resolvedName && certificate.student_name && certificate.student_name !== 'Member') {
+          resolvedName = certificate.student_name.trim();
+        }
+
+        // Priority 3: fallback to auth profile name
+        if (!resolvedName && auth?.name) {
+          resolvedName = auth.name.trim();
+        }
+
+        if (!resolvedName) resolvedName = 'Member';
+        // ─────────────────────────────────────────────────────────────────
+
+        // Replace placeholders
+        html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{event_name}}', eventTitle || 'Event');
+        html = html.replaceAll('{{date}}', issuedAt || '');
+        html = html.replaceAll('{{certificate_id}}', certId);
+
+        const container = document.createElement('div');
+        container.innerHTML = html;
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.top = '-9999px';
+        container.style.width = '1122px'; // A4 landscape at 96 DPI
+        container.style.height = '793px';
+        document.body.appendChild(container);
+
+        // Allow layout to settle and remote fonts/images to load
+        await new Promise(r => setTimeout(r, 1000));
+
+        const canvas = await html2canvas(container, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        
+        const pdf = new jsPDF({
+          orientation: 'landscape',
+          unit: 'px',
+          format: [1122, 793]
+        });
+        pdf.addImage(imgData, 'PNG', 0, 0, 1122, 793);
+        pdf.save(`Certificate_${(eventTitle || 'Event').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+        
+        document.body.removeChild(container);
+      } catch (err) {
+        console.error('PDF Generation error:', err);
+        alert('Failed to generate PDF from template.');
+      } finally {
+        setIsDownloading(false);
+      }
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
   if (certificate && url) {
+    const isTemplateUrl = url.startsWith('template:') || url.toLowerCase().endsWith('.html') || url.toLowerCase().includes('.html?');
+
     return (
       <div style={{
         borderRadius: 18, marginBottom: 20, overflow: 'hidden',
@@ -57,31 +159,35 @@ function CertificateSection({ certificate, finalized }) {
         {/* Action buttons */}
         <div style={{ display: 'flex' }}>
           <button
-            onClick={() => window.open(url, '_blank')}
+            onClick={handleDownload}
+            disabled={isDownloading}
             style={{
-              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: 'pointer',
+              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: isDownloading ? 'wait' : 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 600, color: '#1B2A4A',
               transition: 'background 0.15s',
+              opacity: isDownloading ? 0.6 : 1,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(27,42,74,0.06)'}
+            onMouseEnter={e => !isDownloading && (e.currentTarget.style.background = 'rgba(27,42,74,0.06)')}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
           >
-            <Eye size={15} /> View
+            <Eye size={15} /> {isDownloading ? 'Loading...' : 'View'}
           </button>
           <div style={{ width: 1, background: '#EFE9D8' }} />
           <button
-            onClick={() => window.open(url, '_blank')}
+            onClick={handleDownload}
+            disabled={isDownloading}
             style={{
-              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: 'pointer',
+              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: isDownloading ? 'wait' : 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               fontFamily: "'Inter',sans-serif", fontSize: 13, fontWeight: 600, color: '#2F6F6E',
               transition: 'background 0.15s',
+              opacity: isDownloading ? 0.6 : 1,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(47,111,110,0.06)'}
+            onMouseEnter={e => !isDownloading && (e.currentTarget.style.background = 'rgba(47,111,110,0.06)')}
             onMouseLeave={e => e.currentTarget.style.background = 'none'}
           >
-            <Download size={15} /> Download
+            <Download size={15} /> {isDownloading ? 'Downloading...' : 'Download PDF'}
           </button>
         </div>
       </div>
@@ -125,7 +231,7 @@ export default function EventDetailPage() {
         supabase.from('events').select().eq('id', parseInt(id)).maybeSingle(),
         supabase.from('attendance').select('id').eq('event_id', parseInt(id)).eq('user_id', user.id).limit(1),
         supabase.from('certificates')
-          .select('id, certificate_url, file_url, issued_at')
+          .select('id, certificate_url, file_url, issued_at, student_name, user_id')
           .eq('event_id', parseInt(id))
           .eq('user_id', user.id)
           .maybeSingle(),
@@ -230,7 +336,7 @@ export default function EventDetailPage() {
 
         {/* ── Certificate section (past + attended only) ─────────────────── */}
         {isPast && isAttended && (
-          <CertificateSection certificate={certificate} finalized={finalized} />
+          <CertificateSection certificate={certificate} finalized={finalized} eventTitle={event.title} eventId={event.id} />
         )}
 
         {/* Info cards */}

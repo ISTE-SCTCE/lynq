@@ -40,6 +40,8 @@ dependencies:
 
   app_links: any
   shared_preferences: ^2.3.2
+  flutter_html_to_pdf: ^0.7.0
+  open_file: ^4.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

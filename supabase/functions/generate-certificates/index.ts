@@ -399,37 +399,46 @@ serve(async (req: Request) => {
       try {
         const certId = makeCertId(eventId, userId);
         const storagePath = `${eventId}/${userId}.pdf`;
+        let certUrl = "";
 
-        // ── Build PDF ──
-        const pdfBytes = await buildCertificatePdf({
-          studentName,
-          eventName: eventTitle,
-          eventDate,
-          coordinatorName,
-          chairName,
-          certificateId: certId,
-          category,
-        });
+        const hasTemplate = !!event.template_url;
 
-        // ── Upload PDF to Storage ──
-        const { error: uploadErr } = await supabase.storage
-          .from(STORAGE_BUCKET)
-          .upload(storagePath, pdfBytes, {
-            contentType: "application/pdf",
-            upsert: true,
+        if (!hasTemplate) {
+          // ── Build PDF Natively (Fallback) ──
+          const pdfBytes = await buildCertificatePdf({
+            studentName,
+            eventName: eventTitle,
+            eventDate,
+            coordinatorName,
+            chairName,
+            certificateId: certId,
+            category,
           });
 
-        if (uploadErr) {
-          errors.push(`Upload failed for ${userId}: ${uploadErr.message}`);
-          continue;
+          // ── Upload PDF to Storage ──
+          const { error: uploadErr } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .upload(storagePath, pdfBytes, {
+              contentType: "application/pdf",
+              upsert: true,
+            });
+
+          if (uploadErr) {
+            errors.push(`Upload failed for ${userId}: ${uploadErr.message}`);
+            continue;
+          }
+
+          // ── Get signed URL (10-year expiry) ──
+          const { data: signed } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 10);
+
+          certUrl = signed?.signedUrl ?? "";
+        } else {
+          // Client will perform HTML-to-PDF generation.
+          // Set certUrl to a special marker or just the template url
+          certUrl = `template:${event.template_url}`;
         }
-
-        // ── Get signed URL (10-year expiry) ──
-        const { data: signed } = await supabase.storage
-          .from(STORAGE_BUCKET)
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 10);
-
-        const certUrl = signed?.signedUrl ?? "";
 
         // ── Insert certificate row ──
         const { error: insertErr } = await supabase.from("certificates").upsert(

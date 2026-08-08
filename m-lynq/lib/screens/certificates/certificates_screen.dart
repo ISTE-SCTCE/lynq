@@ -1,4 +1,5 @@
-import 'dart:math' as math;
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,6 +7,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_html_to_pdf/flutter_html_to_pdf.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/providers/auth_provider.dart';
 
@@ -48,6 +52,7 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
 
   List<Map<String, dynamic>> _all  = [];
   bool _isLoading = true;
+  bool _isDownloadingCert = false;
   String _activeFilter = _kFilterAll;
   late AnimationController _shimmerCtrl;
 
@@ -74,34 +79,164 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
     if (uid.isEmpty) { setState(() => _isLoading = false); return; }
 
     try {
-      // Pull certificates joined with event data (new + legacy url columns)
-      final data = await _supabase
+      // 1. Fetch certificates for current user
+      final certData = await _supabase
           .from('certificates')
-          .select('id, event_id, student_name, certificate_url, file_url, issued_at, events(id, title, date, category, type)')
+          .select('id, event_id, student_name, certificate_url, file_url, title, description, issued_at')
           .eq('user_id', uid)
           .order('issued_at', ascending: false);
 
+      final certList = (certData as List).cast<Map<String, dynamic>>();
+
+      // 2. Fetch event details for unique event_ids
+      final eventIds = certList
+          .map((c) => c['event_id'])
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<int, Map<String, dynamic>> eventsMap = {};
+      if (eventIds.isNotEmpty) {
+        final eventRows = await _supabase
+            .from('events')
+            .select('id, title, date, type, category')
+            .inFilter('id', eventIds);
+
+        for (final ev in (eventRows as List)) {
+          final m = Map<String, dynamic>.from(ev as Map);
+          eventsMap[m['id'] as int] = m;
+        }
+      }
+
       if (mounted) {
         setState(() {
-          _all = (data as List).map((item) {
-            final m = Map<String, dynamic>.from(item as Map);
-            final ev = m['events'] as Map<String, dynamic>?;
-            // Normalise url: prefer new column, fall back to legacy
+          _all = certList.map((item) {
+            final m = Map<String, dynamic>.from(item);
+            final evId = m['event_id'] as int?;
+            final ev = eventsMap[evId];
+
             m['_url'] = (m['certificate_url'] as String?)?.isNotEmpty == true
                 ? m['certificate_url']
                 : m['file_url'] as String? ?? '';
-            // Normalise category: prefer events.category, fallback events.type, then null
+
             m['_category'] = ev?['category'] as String? ?? ev?['type'] as String?;
-            m['_eventTitle'] = ev?['title'] as String? ?? 'Event';
+            m['_eventTitle'] = ev?['title'] as String? ?? m['title'] as String? ?? 'Certificate';
             m['_eventDate']  = ev?['date']  as String? ?? '';
-            m['_eventId']    = ev?['id']    as int?;
+            m['_eventId']    = evId;
             return m;
           }).toList();
           _isLoading = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error loading certificates: $e');
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _openCertificate({
+    required String rawUrl,
+    required String studentName,
+    required String eventTitle,
+    required String dateStr,
+    required dynamic certIdVal,
+  }) async {
+    if (_isDownloadingCert) return;
+    setState(() => _isDownloadingCert = true);
+
+    try {
+      final url = rawUrl.trim();
+      final isHtml = url.startsWith('template:') ||
+          url.toLowerCase().endsWith('.html') ||
+          url.toLowerCase().contains('.html?');
+
+      if (isHtml) {
+        final templatePath = url.replaceFirst('template:', '');
+        String templateHtmlUrl = templatePath;
+
+        if (!templatePath.startsWith('http')) {
+          templateHtmlUrl = await _supabase.storage
+              .from('event_posters')
+              .createSignedUrl(templatePath, 60);
+        }
+
+        final client = HttpClient();
+        final request = await client.getUrl(Uri.parse(templateHtmlUrl));
+        final response = await request.close();
+        String html = await response.transform(utf8.decoder).join();
+
+        // ── Resolve the actual student full name from DB ──────────────────
+        final auth = ref.read(authProvider);
+        final uid = auth.user?.id ?? '';
+        String resolvedName = '';
+
+        // Priority 1: fetch fresh from users table
+        if (uid.isNotEmpty) {
+          try {
+            final userRow = await _supabase
+                .from('users')
+                .select('name')
+                .eq('id', uid)
+                .maybeSingle();
+            final dbName = userRow?['name'] as String?;
+            if (dbName != null && dbName.trim().isNotEmpty) {
+              resolvedName = dbName.trim();
+            }
+          } catch (_) {}
+        }
+
+        // Priority 2: student_name stored in certificates table at issuance
+        if (resolvedName.isEmpty && studentName.isNotEmpty && studentName != 'Member') {
+          resolvedName = studentName;
+        }
+
+        // Priority 3: fall back to auth provider profile name
+        if (resolvedName.isEmpty && auth.name.isNotEmpty) {
+          resolvedName = auth.name;
+        }
+
+        if (resolvedName.isEmpty) resolvedName = 'Member';
+        // ─────────────────────────────────────────────────────────────────
+
+        final certId = certIdVal?.toString() ?? 'ISTE-CERT-${DateTime.now().millisecondsSinceEpoch}';
+
+        html = html.replaceAll('{{student_name}}', resolvedName);
+        html = html.replaceAll('{{event_name}}', eventTitle);
+        html = html.replaceAll('{{date}}', dateStr);
+        html = html.replaceAll('{{certificate_id}}', certId);
+
+        final dir = await getApplicationDocumentsDirectory();
+        final sanitizedTitle = eventTitle.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+        final targetFileName = 'Certificate_$sanitizedTitle';
+
+        final generatedPdfFile = await FlutterHtmlToPdf.convertFromHtmlContent(
+          html,
+          dir.path,
+          targetFileName,
+        );
+
+        await OpenFile.open(generatedPdfFile.path);
+      } else {
+        final uri = Uri.parse(url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Could not open link: $url')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error opening certificate: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error opening certificate: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloadingCert = false);
     }
   }
 
@@ -201,6 +336,22 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
                             child: _CertCard(
                               cert: _filtered[i],
                               shimmerCtrl: _shimmerCtrl,
+                              isDownloading: _isDownloadingCert,
+                              onAction: () {
+                                final c = _filtered[i];
+                                final url = c['_url'] as String? ?? '';
+                                final name = c['student_name'] as String? ?? '';
+                                final title = c['_eventTitle'] as String? ?? 'Event';
+                                final date = c['_eventDate'] as String? ?? '';
+                                final certId = c['id'];
+                                _openCertificate(
+                                  rawUrl: url,
+                                  studentName: name,
+                                  eventTitle: title,
+                                  dateStr: date,
+                                  certIdVal: certId,
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -243,7 +394,7 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
             ),
             const SizedBox(height: 20),
             Text(
-              hasFilter ? 'No ${ _activeFilter } certificates' : 'No certificates yet',
+              hasFilter ? 'No $_activeFilter certificates' : 'No certificates yet',
               style: GoogleFonts.cormorantGaramond(
                   fontSize: 20, fontWeight: FontWeight.w700, color: _T.navy),
               textAlign: TextAlign.center,
@@ -285,8 +436,15 @@ class _CertificatesScreenState extends ConsumerState<CertificatesScreen>
 class _CertCard extends StatelessWidget {
   final Map<String, dynamic> cert;
   final AnimationController shimmerCtrl;
+  final bool isDownloading;
+  final VoidCallback onAction;
 
-  const _CertCard({required this.cert, required this.shimmerCtrl});
+  const _CertCard({
+    required this.cert,
+    required this.shimmerCtrl,
+    required this.isDownloading,
+    required this.onAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -406,34 +564,42 @@ class _CertCard extends StatelessWidget {
                       child: Row(
                         children: [
                           Expanded(
-                            child: TextButton(
-                              onPressed: () => launchUrl(Uri.parse(url),
-                                  mode: LaunchMode.externalApplication),
+                            child: TextButton.icon(
+                              onPressed: isDownloading ? null : onAction,
                               style: TextButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 shape: const RoundedRectangleBorder(),
                               ),
-                              child: Text('View',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _T.navy)),
+                              icon: isDownloading
+                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: _T.navy))
+                                  : const Icon(Icons.visibility_rounded, size: 16, color: _T.navy),
+                              label: Text(
+                                isDownloading ? 'Loading...' : 'View',
+                                style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _T.navy),
+                              ),
                             ),
                           ),
                           VerticalDivider(width: 1, color: _T.divider),
                           Expanded(
-                            child: TextButton(
-                              onPressed: () => launchUrl(Uri.parse(url),
-                                  mode: LaunchMode.externalApplication),
+                            child: TextButton.icon(
+                              onPressed: isDownloading ? null : onAction,
                               style: TextButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 shape: const RoundedRectangleBorder(),
                               ),
-                              child: Text('Download',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: _T.teal)),
+                              icon: isDownloading
+                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: _T.teal))
+                                  : const Icon(Icons.download_rounded, size: 16, color: _T.teal),
+                              label: Text(
+                                isDownloading ? 'Loading...' : 'Download PDF',
+                                style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _T.teal),
+                              ),
                             ),
                           ),
                         ],

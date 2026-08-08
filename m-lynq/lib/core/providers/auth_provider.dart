@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../member_emails.dart';
 
 // ── Auth State ─────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
       final newUser = data.session?.user;
       if (newUser == null) {
         state = const MemberAuthState(isLoading: false);
-      } else if (state.user?.id != newUser.id) {
+      } else if (state.user?.id != newUser.id || state.profile == null) {
         _loadProfile(newUser);
       }
     });
@@ -119,7 +120,9 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
   Future<void> _loadProfile(User user) async {
     state = MemberAuthState(user: user, isLoading: true);
     try {
-      // Run all queries in parallel
+      final userEmail = (user.email ?? '').trim().toLowerCase();
+
+      // Parallel queries: users table by id, members table by user_id, members_not_iste by id
       final results = await Future.wait([
         _supabase
             .from('users')
@@ -138,32 +141,63 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
             .maybeSingle(),
       ]);
 
-      final userResponse    = results[0];
-      final memberResponse  = results[1];
-      final notIsteResponse = results[2];
+      Map<String, dynamic>? userResponse    = results[0];
+      Map<String, dynamic>? memberResponse  = results[1];
+      Map<String, dynamic>? notIsteResponse = results[2];
 
-      if (userResponse == null) {
-        // Check whether we have persisted signup data — if yes, the user is
-        // stranded mid-registration (app was killed between OTP send and verify).
-        // Restore the pending data so verifyOTP can re-complete profile creation
-        // when they enter the OTP again.
-        final restored = await _restorePendingSignUpData();
-        if (restored != null) {
-          _pendingSignUpData = restored;
+      // Fallback: If members row by user_id was null, try matching members by email
+      if (memberResponse == null && userEmail.isNotEmpty) {
+        final memberByEmail = await _supabase
+            .from('members')
+            .select('id, user_id, name, email, phone, iste_id, role, status, plan, plan_type, joined_date, expiry_date, membership_expiry, department, forum, forum_name')
+            .ilike('email', userEmail)
+            .maybeSingle();
+
+        if (memberByEmail != null) {
+          memberResponse = memberByEmail;
+          // Auto-link user_id in members table if not set or mismatched
+          if (memberByEmail['user_id'] != user.id) {
+            try {
+              await _supabase.from('members').update({
+                'user_id': user.id,
+              }).eq('id', memberByEmail['id']);
+            } catch (e) {
+              // Ignore update error
+            }
+          }
         }
-        state = MemberAuthState(
-          user: user,
-          isLoading: false,
-          // Use a special error code the router can detect to redirect back to registration
-          error: restored != null
-              ? 'registration_incomplete'
-              : 'User profile not found. Please sign up first.',
-        );
-        return;
+      }
+
+      // Auto-provision user record in `users` table if missing
+      if (userResponse == null) {
+        final restored = await _restorePendingSignUpData();
+        final nameToUse = memberResponse?['name'] ?? restored?['name'] ?? userEmail.split('@').first;
+        final phoneToUse = memberResponse?['phone'] ?? restored?['phone'];
+        final roleToUse = memberResponse?['role'] ?? 'member';
+        final branchToUse = memberResponse?['department'];
+
+        try {
+          await _supabase.from('users').upsert({
+            'id': user.id,
+            'email': userEmail,
+            'name': nameToUse,
+            'phone': phoneToUse,
+            'role': roleToUse,
+            'branch': branchToUse,
+            'status': 'active',
+          });
+
+          // Re-query user row after creation
+          userResponse = await _supabase
+              .from('users')
+              .select('id, email, name, phone, role, roll_number, branch, year, forum')
+              .eq('id', user.id)
+              .maybeSingle();
+        } catch (_) {}
       }
 
       // Remove null values so they don't overwrite non-null data on merge
-      final userClean    = Map<String, dynamic>.from(userResponse)..removeWhere((_, v) => v == null);
+      final userClean    = Map<String, dynamic>.from(userResponse ?? {})..removeWhere((_, v) => v == null);
       final memberClean  = Map<String, dynamic>.from(memberResponse ?? {})..removeWhere((_, v) => v == null);
       final notIsteClean = Map<String, dynamic>.from(notIsteResponse ?? {})..removeWhere((_, v) => v == null);
 
@@ -175,7 +209,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
       // Map expiry columns → validity_end for UI
       merged['validity_end'] ??= merged['expiry_date'] ?? merged['membership_expiry'];
 
-      // Clear any stale pending data now that profile is fully loaded
+      // Clear any stale pending data now that profile is loaded
       await _clearPendingSignUpData();
 
       state = MemberAuthState(user: user, profile: merged, isLoading: false);
@@ -184,213 +218,93 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
     }
   }
 
-  // ── ISTE Member Password Flow ────────────────────────────────────────────
-  //
-  // Fixed flow:
-  //   1. checkEmailMembership(email)
-  //      → null            : no members row at all        → guest path
-  //      → {status:'pending_iste_id'} : row exists, iste_id null → show message
-  //      → {status:'execom_unactivated'} : execom, no user_id   → show message
-  //      → {status:'login'}  : has_password true           → login step
-  //      → {status:'otp_required'} : first-time member    → send OTP, then create pw
-  //
-  //   2. requestIsteMemberOTP(email) — sends OTP to the matched member email
-  //   3. verifyIsteMemberOTP(email, otp) — verifies OTP, sets _isteOtpVerified flag
-  //   4. registerIsteMemberWithPassword(email, password, profileData)
-  //      — only callable after OTP verified
-
-  bool _isteOtpVerified = false;
+  // ── Member Email Check ─────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> checkEmailMembership(String email) async {
+    final cleanEmail = email.trim().toLowerCase();
+
+    // 1. Check if email is in official static list
+    if (isIsteMemberEmail(cleanEmail)) {
+      return {
+        'status': 'member_otp_login',
+        'is_iste_member': true,
+      };
+    }
+
+    // 2. Check if in members database table
     final memberRes = await _supabase.from('members')
-        .select()
-        .ilike('email', email.trim())
+        .select('id, iste_id, name, phone, email')
+        .ilike('email', cleanEmail)
         .maybeSingle();
 
     if (memberRes != null) {
-      // If they are in the members table, direct OTP login is enough!
       return {
         'status': 'member_otp_login',
+        'is_iste_member': true,
         'iste_id': memberRes['iste_id'],
         'name': memberRes['name'] ?? '',
         'phone': memberRes['phone'] ?? '',
       };
     }
 
-    // Check if they are already registered as a guest (exist in users table)
+    // 3. Check if existing guest user in users table
     final userRes = await _supabase.from('users')
         .select('id')
-        .ilike('email', email.trim())
+        .ilike('email', cleanEmail)
         .maybeSingle();
 
     if (userRes != null) {
-      return {'status': 'guest_login'};
+      return {
+        'status': 'guest_login',
+        'is_iste_member': false,
+      };
     }
 
-    // No row at all and no guest user → guest registration path
+    // 4. Truly new user → guest registration path
     return null;
   }
 
-  /// Step 2 of ISTE member first-login: send OTP to verify email ownership.
-  Future<void> requestIsteMemberOTP(String email) async {
-    _isteOtpVerified = false;
-    // shouldCreateUser: false — we are NOT creating a new user here,
-    // we are verifying ownership of the email before allowing password creation.
-    await _supabase.auth.signInWithOtp(
-      email: email.trim(),
-      shouldCreateUser: false,
-      emailRedirectTo: 'com.iste.memberapp://login-callback',
-    );
-  }
-
-  /// Step 3: Verify the OTP sent by requestIsteMemberOTP.
-  /// On success, sets _isteOtpVerified = true so registerIsteMemberWithPassword
-  /// is allowed to proceed.
-  Future<void> verifyIsteMemberOTP(String email, String otp) async {
-    final res = await _supabase.auth.verifyOTP(
-      email: email.trim(),
-      token: otp,
-      type: OtpType.email,
-    );
-    if (res.user == null) {
-      throw Exception('OTP verification failed. Please try again.');
-    }
-    _isteOtpVerified = true;
-    // Sign out immediately — they verified ownership, now they'll set a password
-    // via registerIsteMemberWithPassword which calls signUp with email+password.
-    await _supabase.auth.signOut();
-  }
-
-  /// Step 4: Register the ISTE member with a password.
-  /// REQUIRES _isteOtpVerified == true, otherwise throws.
-  Future<void> registerIsteMemberWithPassword(
-    String email,
-    String password,
-    Map<String, dynamic> profileData,
-  ) async {
-    if (!_isteOtpVerified) {
-      throw Exception('Email verification required before setting a password.');
-    }
-
-    final res = await _supabase.auth.signUp(
-      email: email.trim(),
-      password: password,
-    );
-
-    if (res.user != null) {
-      await _supabase.from('users').upsert({
-        'id': res.user!.id,
-        'email': email.trim(),
-        'name': profileData['name'],
-        'phone': profileData['phone'],
-        'role': 'user',
-      });
-
-      // Link the existing members row to this new auth user
-      final updateRes = await _supabase.from('members').update({
-        'user_id': res.user!.id,
-      }).eq('iste_id', profileData['iste_id']).select();
-
-      if ((updateRes as List).isEmpty) {
-        // The iste_id didn't match any row — this should never happen after
-        // checkEmailMembership succeeded, but handle it defensively.
-        throw Exception(
-          'Account setup incomplete: ISTE ID ${profileData['iste_id']} not found in members table. '
-          'Please contact your execom.',
-        );
-      }
-
-      _isteOtpVerified = false;
-      await _loadProfile(res.user!);
-    } else {
-      throw Exception('Sign-up failed: no user returned. Please try again.');
-    }
-  }
-
-  // Legacy / still-used: checkIsteMember (cross-validates email+phone+isteId)
-  Future<Map<String, dynamic>?> checkIsteMember(String email, String phone, String isteId) async {
-    // Check if the account is already claimed
-    final existingProfile = await _supabase.from('members')
-        .select('user_id')
-        .eq('iste_id', isteId)
-        .maybeSingle();
-
-    if (existingProfile != null && existingProfile['user_id'] != null) {
-      throw Exception('This account has already been claimed. Please switch to Log In and use your password.');
-    }
-
-    return await _supabase.from('members')
-        .select()
-        .eq('email', email)
-        .eq('phone', phone)
-        .eq('iste_id', isteId)
-        .maybeSingle();
-  }
-
-  Future<void> loginIsteMemberWithPassword(String isteId, String password) async {
-    final memberRes = await _supabase.from('members')
-        .select('email, user_id')
-        .eq('iste_id', isteId)
-        .maybeSingle();
-
-    if (memberRes == null) throw Exception('ISTE ID not found in database');
-
-    // If user_id is null, the account was never activated
-    if (memberRes['user_id'] == null) {
-      throw Exception(
-        'No account has been set up for this ISTE ID yet. '
-        'Please use the "First time login" flow to create your password.',
-      );
-    }
-
-    final email = memberRes['email'] as String;
-    await _supabase.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
-  }
-
-  // ── Guest OTP Flow ───────────────────────────────────────────────────────
+  // ── OTP Flow ─────────────────────────────────────────────────────────────
 
   Future<void> requestOTP(String email, {bool isSignUp = false}) async {
     await _supabase.auth.signInWithOtp(
       email: email.trim(),
-      shouldCreateUser: isSignUp, // Allow creating new users if signing up
+      shouldCreateUser: isSignUp,
       emailRedirectTo: 'com.iste.memberapp://login-callback',
     );
   }
 
   Future<void> verifyOTP(String email, String otp) async {
+    final cleanEmail = email.trim().toLowerCase();
     final res = await _supabase.auth.verifyOTP(
-      email: email.trim(),
+      email: cleanEmail,
       token: otp,
       type: OtpType.email,
     );
 
     if (res.user != null) {
       try {
-        // Step 1: Check if they exist in the members table
+        // Check if matching member in members table
         final memberRes = await _supabase.from('members')
             .select()
-            .ilike('email', email.trim())
+            .ilike('email', cleanEmail)
             .maybeSingle();
 
         if (memberRes != null) {
-          // They are a registered member in the members table!
-          // Link user_id in the members table if not set yet
-          if (memberRes['user_id'] == null) {
+          // Link user_id in members table if needed
+          if (memberRes['user_id'] != res.user!.id) {
             await _supabase.from('members').update({
               'user_id': res.user!.id,
             }).eq('id', memberRes['id']);
           }
 
-          // Automatically provision / update users table entry
+          // Provision users table entry
           await _supabase.from('users').upsert({
             'id': res.user!.id,
-            'email': email.trim(),
+            'email': cleanEmail,
             'name': memberRes['name'] ?? 'Member',
             'phone': memberRes['phone'],
-            'role': memberRes['role'] ?? 'member', // Keep role from members table (e.g. member, Core Execom, etc.)
+            'role': memberRes['role'] ?? 'member',
             'branch': memberRes['department'],
             'status': 'active',
           });
@@ -399,7 +313,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
           return;
         }
 
-        // Step 2: Otherwise they are a guest (restore pending guest registration data)
+        // Restore pending guest data if any
         if (_pendingSignUpData == null) {
           _pendingSignUpData = await _restorePendingSignUpData();
         }
@@ -407,7 +321,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
         if (_pendingSignUpData != null) {
           await _supabase.from('users').upsert({
             'id': res.user!.id,
-            'email': email.trim(),
+            'email': cleanEmail,
             'name': _pendingSignUpData!['name'],
             'phone': _pendingSignUpData!['phone'],
             'roll_number': _pendingSignUpData!['roll_number'],
@@ -418,7 +332,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
           await _supabase.from('members_not_iste').upsert({
             'id': res.user!.id,
             'name': _pendingSignUpData!['name'],
-            'email': email.trim(),
+            'email': cleanEmail,
             'phone': _pendingSignUpData!['phone'],
             'roll_number': _pendingSignUpData!['roll_number'],
             'college': _pendingSignUpData!['college'],
@@ -426,7 +340,13 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
 
           await _loadProfile(res.user!);
         } else {
-          // Existed guest logger - load profile directly
+          // Provision baseline user if missing
+          await _supabase.from('users').upsert({
+            'id': res.user!.id,
+            'email': cleanEmail,
+            'role': 'user',
+            'status': 'active',
+          });
           await _loadProfile(res.user!);
         }
       } catch (e) {
@@ -434,6 +354,8 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
       } finally {
         await _clearPendingSignUpData();
       }
+    } else {
+      throw Exception('OTP verification failed. Please try again.');
     }
   }
 
@@ -441,6 +363,7 @@ class AuthNotifier extends StateNotifier<MemberAuthState> {
 
   Future<void> signOut() async {
     await _supabase.auth.signOut();
+    state = const MemberAuthState(isLoading: false);
   }
 
   Future<void> refresh() async {
