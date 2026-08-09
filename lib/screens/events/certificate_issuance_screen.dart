@@ -81,7 +81,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       Map<String, Map<String, dynamic>> usersMap = {};
       if (userIds.isNotEmpty) {
         final usersRows = await _supabase
-            .from('users')
+            .from('profiles')
             .select('id, name, roll_number, branch')
             .inFilter('id', userIds);
         for (final u in (usersRows as List)) {

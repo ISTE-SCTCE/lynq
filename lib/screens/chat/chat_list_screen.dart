@@ -89,7 +89,7 @@ class _ChatListScreenState extends State<ChatListScreen> with SingleTickerProvid
       // 2. Load Contacts/Users
       if (cache.globalUsers == null || cache.isGlobalUsersStale) {
         final usersData = await supabase
-            .from('users')
+            .from('profiles')
             .select()
             .neq('id', myId)
             .order('name');

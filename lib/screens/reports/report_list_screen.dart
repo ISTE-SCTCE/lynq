@@ -48,7 +48,7 @@ class _ReportListScreenState extends State<ReportListScreen> {
       if (missingIds.isNotEmpty) {
         try {
           final users = await _supabase
-              .from('users')
+              .from('profiles')
               .select('id, name, post, role')
               .inFilter('id', missingIds.toList());
           for (var u in users) {

@@ -65,7 +65,7 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen>
       Map<String, Map<String, dynamic>> usersMap = {};
       if (userIds.isNotEmpty) {
         final usersRows = await Supabase.instance.client
-            .from('users')
+            .from('profiles')
             .select('id, name, roll_number, branch, year, email')
             .inFilter('id', userIds);
         for (final u in (usersRows as List)) {

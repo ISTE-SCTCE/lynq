@@ -154,7 +154,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                   // Use the already-loaded user_id — avoids a second DB round-trip
                   if (_linkedUserId != null) {
                     await Supabase.instance.client
-                        .from('users')
+                        .from('profiles')
                         .update({'role': selectedRole})
                         .eq('id', _linkedUserId!);
                   }
@@ -310,7 +310,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     try {
       await supabase.from('members').delete().eq('id', widget.userId);
       if (_linkedUserId != null) {
-        await supabase.from('users').delete().eq('id', _linkedUserId!);
+        await supabase.from('profiles').delete().eq('id', _linkedUserId!);
       }
       
       if (mounted) {
@@ -359,7 +359,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       await supabase.from('folder_members').delete().eq('user_id', widget.userId);
       // Sync to users table using the already-loaded _linkedUserId
       if (_linkedUserId != null) {
-        await supabase.from('users').update({'role': 'member'}).eq('id', _linkedUserId!);
+        await supabase.from('profiles').update({'role': 'member'}).eq('id', _linkedUserId!);
       }
       
       if (mounted) {
@@ -438,7 +438,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       try {
         final memberData = await supabase.from('members').select('user_id').eq('id', widget.userId).single();
         if (memberData['user_id'] != null) {
-          await supabase.from('users').update({
+          await supabase.from('profiles').update({
             'status': 'suspended',
             'suspended_until': suspendedUntil.toIso8601String(),
           }).eq('id', memberData['user_id']);
@@ -473,7 +473,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
       try {
         final memberData = await supabase.from('members').select('user_id').eq('id', widget.userId).single();
         if (memberData['user_id'] != null) {
-          await supabase.from('users').update({
+          await supabase.from('profiles').update({
             'status': 'active',
             'suspended_until': null,
           }).eq('id', memberData['user_id']);

@@ -42,7 +42,7 @@ class _BudgetRequestScreenState extends State<BudgetRequestScreen> {
       final userId = client.auth.currentUser?.id;
       
       // Get role
-      final userRes = await client.from('users').select('role').eq('id', userId ?? '').single();
+      final userRes = await client.from('profiles').select('role').eq('id', userId ?? '').single();
       final role = AppRole.fromString(userRes['role']);
 
       var query = client.from('folders').select();

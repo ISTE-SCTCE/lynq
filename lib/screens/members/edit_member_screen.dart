@@ -46,7 +46,7 @@ class _EditMemberScreenState extends State<EditMemberScreen> {
       };
 
       await Supabase.instance.client
-          .from('users')
+          .from('profiles')
           .update(updates)
           .eq('id', widget.user.id);
           

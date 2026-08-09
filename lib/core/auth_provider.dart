@@ -82,7 +82,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       // 1. Fetch user profile with timeout
       final userData = await _supabase
-          .from('users')
+          .from('profiles')
           .select()
           .eq('id', _authUser!.id)
           .single()
@@ -92,7 +92,7 @@ class AuthProvider extends ChangeNotifier {
       // 2. Fetch folder memberships with timeout
       final membershipData = await _supabase
           .from('folder_members')
-          .select('*, users(id, name, email, role, post)')
+          .select('*, profiles(id, name, email, role, post)')
           .eq('user_id', _authUser!.id)
           .timeout(const Duration(seconds: 15));
       _folderMemberships = (membershipData as List)

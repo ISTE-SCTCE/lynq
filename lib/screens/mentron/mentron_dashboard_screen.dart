@@ -68,7 +68,7 @@ class _MentronDashboardScreenState extends State<MentronDashboardScreen> {
       }
 
       // Fetch from ISTE DB to match the web app's analytics
-      final usersResp = await Supabase.instance.client.from('users').select();
+      final usersResp = await Supabase.instance.client.from('profiles').select();
       final allUsers = List<Map<String, dynamic>>.from(usersResp);
 
       int students = allUsers.length;
