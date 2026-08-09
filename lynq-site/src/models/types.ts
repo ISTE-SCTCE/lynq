@@ -17,6 +17,8 @@ export interface UserModel {
   permissions: Record<string, any>;
   last_seen?: string;
   created_at?: string;
+  status?: string;
+  suspended_until?: string;
 }
 
 export interface FolderModel {
@@ -64,6 +66,12 @@ export interface EventModel {
   poster_url?: string;
   location?: string;
   allowed_roles?: string[];
+  num_days?: number;
+  attendance_finalized?: boolean;
+  category?: string;
+  coordinator_name?: string;
+  chair_name?: string;
+  template_url?: string;
 }
 
 export interface AnnouncementModel {

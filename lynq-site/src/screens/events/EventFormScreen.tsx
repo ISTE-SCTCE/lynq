@@ -33,6 +33,13 @@ export const EventFormScreen: React.FC = () => {
   const allowedRolesList = ['member', 'restricted', 'panel', 'forum_execcom', 'core_execcom', 'vice_chairman', 'chairman'];
   const [selectedRoles, setSelectedRoles] = useState<string[]>(allowedRolesList);
 
+  const [numDays, setNumDays] = useState('1');
+  const [category, setCategory] = useState('General');
+  const [coordinatorName, setCoordinatorName] = useState('');
+  const [chairName, setChairName] = useState('');
+  const [templateFile, setTemplateFile] = useState<File | null>(null);
+  const categories = ['Hackathon', 'Workshop', 'Seminar', 'General'];
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -67,6 +74,32 @@ export const EventFormScreen: React.FC = () => {
     }
   };
 
+  const uploadTemplate = async (): Promise<string | null> => {
+    if (!templateFile) return null;
+    try {
+      const ext = templateFile.name.split('.').pop() || 'html';
+      const fileName = `template_${crypto.randomUUID()}.${ext}`;
+      const path = `templates/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('event_posters')
+        .upload(path, templateFile, {
+          contentType: 'text/html',
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('event_posters')
+        .getPublicUrl(path);
+
+      return publicUrl;
+    } catch (e) {
+      console.error('Template upload failed:', e);
+      return null;
+    }
+  };
+
   const handleRoleToggle = (role: string) => {
     setSelectedRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
@@ -84,6 +117,11 @@ export const EventFormScreen: React.FC = () => {
         uploadedUrl = await uploadPoster();
       }
 
+      let uploadedTemplateUrl: string | null = null;
+      if (templateFile) {
+        uploadedTemplateUrl = await uploadTemplate();
+      }
+
       const { error } = await supabase.from('events').insert({
         title: title.trim(),
         description: description.trim(),
@@ -96,6 +134,11 @@ export const EventFormScreen: React.FC = () => {
         location: location.trim(),
         allowed_roles: selectedRoles,
         poster_url: uploadedUrl,
+        num_days: parseInt(numDays) || 1,
+        category,
+        coordinator_name: coordinatorName.trim() || null,
+        chair_name: chairName.trim() || null,
+        template_url: uploadedTemplateUrl,
       });
 
       if (error) throw error;
@@ -170,6 +213,73 @@ export const EventFormScreen: React.FC = () => {
             onChange={setLocation}
             placeholder="Venue details"
           />
+
+          <div style={{ marginBottom: '16px' }}>
+            <label className="form-input-label">Event Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="form-date-picker"
+              style={{ width: '100%', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-light)', borderRadius: '14px', color: 'var(--text-primary)', padding: '14px', outline: 'none' }}
+            >
+              {categories.map((c) => (
+                <option key={c} value={c} style={{ background: '#121212', color: 'white' }}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <CustomTextField
+            label="Event Coordinator Name"
+            value={coordinatorName}
+            onChange={setCoordinatorName}
+            placeholder="Name of Coordinator"
+          />
+
+          <CustomTextField
+            label="Chapter Chairperson Name"
+            value={chairName}
+            onChange={setChairName}
+            placeholder="Name of Chairperson"
+          />
+
+          <div style={{ marginBottom: '16px' }}>
+            <label className="form-input-label">Upload HTML Certificate Template (Optional)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <input
+                type="file"
+                accept=".html"
+                id="template-file-input"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setTemplateFile(file);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => document.getElementById('template-file-input')?.click()}
+                className="role-filter-chip"
+                style={{ padding: '12px 20px', cursor: 'pointer', height: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                Choose File
+              </button>
+              <span style={{ fontSize: '13px', color: templateFile ? 'rgb(22, 192, 122)' : 'var(--text-muted)' }}>
+                {templateFile ? templateFile.name : 'No file chosen'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label className="form-input-label">Number of Days</label>
+            <input
+              type="number"
+              min="1"
+              value={numDays}
+              onChange={(e) => setNumDays(e.target.value)}
+              className="form-date-picker"
+              placeholder="e.g. 1"
+            />
+          </div>
 
           {/* Allowed Roles Checkboxes */}
           <div style={{ marginBottom: '20px' }}>
