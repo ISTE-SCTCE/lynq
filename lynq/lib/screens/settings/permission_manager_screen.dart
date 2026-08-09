@@ -40,7 +40,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
     setState(() => _isLoading = true);
     try {
       final responses = await Future.wait([
-        _supabase.from('users').select().order('name'),
+        _supabase.from('profiles').select().order('name'),
         _supabase.from('folders').select().eq('is_forum', true).order('name'),
         _supabase.from('folder_permissions').select(),
         _supabase.from('folder_members').select('*, users!folder_members_user_id_fkey(*)').eq('execom_id', 0),
@@ -70,7 +70,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
   // ── Role Management ──
   Future<void> _updateUserRole(UserModel user, String newRole) async {
     try {
-      await _supabase.from('users').update({'role': newRole}).eq('id', user.id);
+      await _supabase.from('profiles').update({'role': newRole}).eq('id', user.id);
       _fetchAllData();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));

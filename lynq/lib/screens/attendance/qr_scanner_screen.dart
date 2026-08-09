@@ -183,7 +183,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
         if ((existing as List).isNotEmpty) {
           // Fetch user name
           final userRow = await _supabase
-              .from('users')
+              .from('profiles')
               .select('name')
               .eq('id', userId)
               .single();
@@ -201,7 +201,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
 
       // Fetch user name for display
       final userRow = await _supabase
-          .from('users')
+          .from('profiles')
           .select('name, roll_number, branch')
           .eq('id', userId)
           .maybeSingle();
@@ -404,7 +404,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                                 if (allowedRoles != null && allowedRoles.isNotEmpty) {
                                   // Fetch the scanned member's role
                                   final memberRole = await _supabase
-                                      .from('users')
+                                      .from('profiles')
                                       .select('role')
                                       .eq('id', userId)
                                       .maybeSingle();

@@ -32,7 +32,7 @@ export const TaskCreateScreen: React.FC = () => {
       try {
         // Fetch all users
         const { data: userData, error: userError } = await supabase
-          .from('users')
+          .from('profiles')
           .select('id, name, role, post')
           .order('name');
         

@@ -20,7 +20,7 @@ export const MemberListScreen: React.FC = () => {
     setIsLoading(true);
     try {
       const { data, error } = await supabase
-        .from('users')
+        .from('profiles')
         .select('*')
         .order('name');
 

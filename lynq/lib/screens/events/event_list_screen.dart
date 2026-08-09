@@ -93,7 +93,7 @@ class _EventListScreenState extends State<EventListScreen> {
           
       final userIds = (data as List).map((e) => e['created_by']).where((id) => id != null).toSet().toList();
       if (userIds.isNotEmpty) {
-        final usersData = await Supabase.instance.client.from('users').select('id, role').inFilter('id', userIds);
+        final usersData = await Supabase.instance.client.from('profiles').select('id, role').inFilter('id', userIds);
         for(var u in usersData) {
           _creatorRoles[u['id']] = u['role'];
         }

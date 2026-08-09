@@ -42,7 +42,7 @@ export const EventListScreen: React.FC = () => {
       const userIds = Array.from(new Set(loadedEvents.map((e) => e.created_by).filter((id) => id)));
       if (userIds.length > 0) {
         const { data: usersData, error: uError } = await supabase
-          .from('users')
+          .from('profiles')
           .select('id, role')
           .in('id', userIds);
 

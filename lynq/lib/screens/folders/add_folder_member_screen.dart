@@ -78,7 +78,7 @@ class _AddFolderMemberScreenState extends State<AddFolderMemberScreen> {
       }
 
       // 2. Get all users
-      final userData = await supabase.from('users').select().order('name');
+      final userData = await supabase.from('profiles').select().order('name');
       _allGlobalUsers = (userData as List).map((e) => UserModel.fromJson(e)).toList();
       cache.updateGlobalUsers(_allGlobalUsers);
       

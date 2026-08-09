@@ -49,7 +49,7 @@ class _TaskCreateScreenState extends State<TaskCreateScreen> {
   Future<void> _loadData() async {
     try {
       final [users, forums] = await Future.wait([
-        _supabase.from('users').select('id, name, role').order('name'),
+        _supabase.from('profiles').select('id, name, role').order('name'),
         if (!_isSubtask) _supabase.from('folders').select('id, name').order('name'),
       ]);
       if (mounted) {

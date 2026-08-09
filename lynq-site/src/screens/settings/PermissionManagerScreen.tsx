@@ -35,10 +35,10 @@ export const PermissionManagerScreen: React.FC = () => {
         { data: permsData, error: permsError },
         { data: membersData, error: membersError }
       ] = await Promise.all([
-        supabase.from('users').select().order('name'),
+        supabase.from('profiles').select().order('name'),
         supabase.from('folders').select().order('name'),
         supabase.from('folder_permissions').select('id, folder_id:execom_id, feature, allowed'),
-        supabase.from('folder_members').select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users!folder_members_user_id_fkey(*)').eq('execom_id', 0)
+        supabase.from('folder_members').select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, profiles!folder_members_user_id_fkey(*)').eq('execom_id', 0)
       ]);
 
       if (usersError) throw usersError;
@@ -51,8 +51,8 @@ export const PermissionManagerScreen: React.FC = () => {
       setAllPermissions(permsData || []);
       
       const coreMembers = (membersData || [])
-        .filter((m: any) => m.users)
-        .map((m: any) => m.users);
+        .filter((m: any) => m.profiles)
+        .map((m: any) => m.profiles);
       setAuthorizedCoreMembers(coreMembers);
     } catch (e: any) {
       console.error('Error fetching permission manager data:', e);
@@ -86,7 +86,7 @@ export const PermissionManagerScreen: React.FC = () => {
   const handleUpdateUserRole = async (userId: string, newRole: string) => {
     try {
       const { error } = await supabase
-        .from('users')
+        .from('profiles')
         .update({ role: newRole })
         .eq('id', userId);
 

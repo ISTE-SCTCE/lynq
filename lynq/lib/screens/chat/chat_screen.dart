@@ -167,7 +167,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _isLoading = false;
         });
       } else if (widget.otherUserId != null) {
-        final userData = await supabase.from('users').select().eq('id', widget.otherUserId!).single();
+        final userData = await supabase.from('profiles').select().eq('id', widget.otherUserId!).single();
         setState(() {
           _otherUser = UserModel.fromJson(userData);
           _otherName = _otherUser?.name ?? 'User';
@@ -175,7 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       if (_myId != null) {
-        final myData = await supabase.from('users').select('name').eq('id', _myId!).single();
+        final myData = await supabase.from('profiles').select('name').eq('id', _myId!).single();
         _myName = myData['name'] as String? ?? 'Me';
       }
     } catch (e) {

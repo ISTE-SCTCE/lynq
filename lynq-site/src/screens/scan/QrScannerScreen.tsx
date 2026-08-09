@@ -133,7 +133,7 @@ export const QrScannerScreen: React.FC = () => {
 
         if (existingData && existingData.length > 0) {
           const { data: userRow } = await supabase
-            .from('users')
+            .from('profiles')
             .select('name')
             .eq('id', uid)
             .single();
@@ -149,7 +149,7 @@ export const QrScannerScreen: React.FC = () => {
 
       // 5. Fetch user profile detail
       const { data: userRow } = await supabase
-        .from('users')
+        .from('profiles')
         .select('name, roll_number, branch')
         .eq('id', uid)
         .single();

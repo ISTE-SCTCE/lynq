@@ -343,10 +343,10 @@ serve(async (req: Request) => {
     const chairName = (event.chair_name as string) ?? "";
     const category = (event.category as string) ?? "General";
 
-    // ── Fetch attendees (attendance rows joined with users) ──
+    // ── Fetch attendees (attendance rows joined with profiles) ──
     const { data: attendees, error: attErr } = await supabase
       .from("attendance")
-      .select("user_id, users(id, name)")
+      .select("user_id, profiles(id, name)")
       .eq("event_id", eventId);
 
     if (attErr) {
@@ -388,7 +388,7 @@ serve(async (req: Request) => {
 
     for (const row of attendees) {
       const userId = (row as { user_id: string }).user_id;
-      const userInfo = (row as { users: { id: string; name: string } | null }).users;
+      const userInfo = (row as { profiles: { id: string; name: string } | null }).profiles;
       const studentName = userInfo?.name ?? "Member";
 
       if (existingUserIds.has(userId)) {

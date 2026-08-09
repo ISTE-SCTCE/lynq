@@ -31,7 +31,7 @@ export const ReportListScreen: React.FC = () => {
       const uploaderIds = Array.from(new Set(loadedReports.map((r) => r.uploaded_by).filter((id) => id)));
       if (uploaderIds.length > 0) {
         const { data: usersData } = await supabase
-          .from('users')
+          .from('profiles')
           .select('id, name, post, role')
           .in('id', uploaderIds);
 

@@ -49,7 +49,7 @@ export const MemberDetailScreen: React.FC = () => {
       // Parallelise both fetches
       const [profileRes, memberRes] = await Promise.all([
         supabase
-          .from('users')
+          .from('profiles')
           .select('id, email, name, role, post, phone, roll_number, branch, forum, membership_date, expiry_date, is_sudo')
           .eq('id', id)
           .single(),
@@ -120,7 +120,7 @@ export const MemberDetailScreen: React.FC = () => {
     try {
       // Sync role to users table
       const { error: usersError } = await supabase
-        .from('users')
+        .from('profiles')
         .update({ role: selectedRole })
         .eq('id', user.id);
 
@@ -193,7 +193,7 @@ export const MemberDetailScreen: React.FC = () => {
 
       // Also ensure it is deleted from the users table if edge function doesn't cascade
       const { error } = await supabase
-        .from('users')
+        .from('profiles')
         .delete()
         .eq('id', user.id);
 
