@@ -145,8 +145,8 @@ class NotificationService {
 
       final currentUser = _supabase.auth.currentUser;
       if (currentUser != null) {
-        // Upsert FCM token to Supabase users profile
-        await _supabase.from('users').update({
+        // Upsert FCM token to Supabase profiles
+        await _supabase.from('profiles').update({
           'fcm_token': token,
           'last_active': DateTime.now().toIso8601String(),
         }).eq('id', currentUser.id);
