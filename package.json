@@ -1,0 +1,8 @@
+{
+  "name": "lynq-root",
+  "private": true,
+  "scripts": {
+    "vercel-build": "npm install --prefix lynq-site && npm run build --prefix lynq-site",
+    "build": "npm install --prefix lynq-site && npm run build --prefix lynq-site"
+  }
+}
