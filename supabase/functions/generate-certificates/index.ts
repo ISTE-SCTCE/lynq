@@ -293,6 +293,180 @@ async function buildCertificatePdf(params: {
   return await pdfDoc.save();
 }
 
+// ── Image Background PDF Builder ──────────────────────────────────────────────
+// Embeds uploaded PNG/JPG template image as background and overlays text onto coordinates.
+
+interface FieldPosition {
+  x: number;
+  y: number;
+  fontSize?: number;
+  fontColor?: string; // hex e.g. "#1B2A4A"
+  alignment?: "center" | "left" | "right";
+}
+
+interface FieldPositions {
+  studentName?: FieldPosition;
+  eventName?: FieldPosition;
+  eventDate?: FieldPosition;
+  certificateId?: FieldPosition;
+  category?: FieldPosition;
+  coordinatorName?: FieldPosition;
+  chairName?: FieldPosition;
+}
+
+async function buildImageCertificatePdf(params: {
+  bgImageUrl: string;
+  studentName: string;
+  eventName: string;
+  eventDate: string;
+  coordinatorName: string;
+  chairName: string;
+  certificateId: string;
+  category: string;
+  positions?: FieldPositions;
+}): Promise<Uint8Array> {
+  const {
+    bgImageUrl,
+    studentName,
+    eventName,
+    eventDate,
+    coordinatorName,
+    chairName,
+    certificateId,
+    category,
+    positions = {},
+  } = params;
+
+  // Fetch background image
+  const imgRes = await fetch(bgImageUrl);
+  if (!imgRes.ok) {
+    throw new Error(`Failed to fetch background image from ${bgImageUrl}: ${imgRes.statusText}`);
+  }
+  const imgBytes = new Uint8Array(await imgRes.arrayBuffer());
+
+  const pdfDoc = await PDFDocument.create();
+
+  let embeddedImage;
+  const isPng = bgImageUrl.toLowerCase().includes(".png") || (imgRes.headers.get("content-type") ?? "").includes("image/png");
+  if (isPng) {
+    embeddedImage = await pdfDoc.embedPng(imgBytes);
+  } else {
+    embeddedImage = await pdfDoc.embedJpg(imgBytes);
+  }
+
+  const { width: imgW, height: imgH } = embeddedImage.scale(1);
+  const page = pdfDoc.addPage([imgW, imgH]);
+  page.drawImage(embeddedImage, { x: 0, y: 0, width: imgW, height: imgH });
+
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+
+  // Helper to parse hex color to rgb
+  const parseColor = (hex?: string) => {
+    if (!hex) return rgb(0.106, 0.165, 0.290); // default navy #1B2A4A
+    const clean = hex.replace("#", "");
+    const r = parseInt(clean.substring(0, 2), 16) / 255;
+    const g = parseInt(clean.substring(2, 4), 16) / 255;
+    const b = parseInt(clean.substring(4, 6), 16) / 255;
+    return rgb(isNaN(r) ? 0.1 : r, isNaN(g) ? 0.1 : g, isNaN(b) ? 0.2 : b);
+  };
+
+  const drawTextAt = (text: string, pos?: FieldPosition, defaultPos?: { x: number; y: number; fontSize: number; font: PDFFont }) => {
+    if (!text) return;
+    const font = defaultPos?.font ?? timesBold;
+    const size = pos?.fontSize ?? defaultPos?.fontSize ?? 24;
+    const color = parseColor(pos?.fontColor);
+
+    let posX = pos?.x ?? defaultPos?.x ?? imgW / 2;
+    const posY = pos?.y ?? defaultPos?.y ?? imgH / 2;
+    const align = pos?.alignment ?? "center";
+
+    const textWidth = font.widthOfTextAtSize(text, size);
+    if (align === "center") {
+      posX = posX - textWidth / 2;
+    } else if (align === "right") {
+      posX = posX - textWidth;
+    }
+
+    page.drawText(text, {
+      x: posX,
+      y: posY,
+      size,
+      font,
+      color,
+    });
+  };
+
+  // 1. Student Name
+  drawTextAt(studentName, positions.studentName, {
+    x: imgW / 2,
+    y: imgH * 0.52,
+    fontSize: studentName.length > 25 ? 26 : 34,
+    font: timesBold,
+  });
+
+  // 2. Event Name
+  drawTextAt(eventName, positions.eventName, {
+    x: imgW / 2,
+    y: imgH * 0.40,
+    fontSize: 18,
+    font: helveticaBold,
+  });
+
+  // 3. Event Date
+  if (eventDate) {
+    drawTextAt(eventDate, positions.eventDate, {
+      x: imgW / 2,
+      y: imgH * 0.33,
+      fontSize: 12,
+      font: helvetica,
+    });
+  }
+
+  // 4. Certificate ID
+  if (certificateId) {
+    drawTextAt(`ID: ${certificateId}`, positions.certificateId, {
+      x: imgW / 2,
+      y: imgH * 0.08,
+      fontSize: 9,
+      font: helvetica,
+    });
+  }
+
+  // 5. Category
+  if (category) {
+    drawTextAt(category, positions.category, {
+      x: imgW / 2,
+      y: imgH * 0.65,
+      fontSize: 14,
+      font: helveticaBold,
+    });
+  }
+
+  // 6. Coordinator Name
+  if (coordinatorName) {
+    drawTextAt(coordinatorName, positions.coordinatorName, {
+      x: imgW * 0.25,
+      y: imgH * 0.20,
+      fontSize: 11,
+      font: helveticaBold,
+    });
+  }
+
+  // 7. Chair Name
+  if (chairName) {
+    drawTextAt(chairName, positions.chairName, {
+      x: imgW * 0.75,
+      y: imgH * 0.20,
+      fontSize: 11,
+      font: helveticaBold,
+    });
+  }
+
+  return await pdfDoc.save();
+}
+
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -329,7 +503,7 @@ serve(async (req: Request) => {
     // ── Fetch event metadata ──
     const { data: event, error: evErr } = await supabase
       .from("events")
-      .select("id, title, date, coordinator_name, chair_name, category")
+      .select("id, title, date, coordinator_name, chair_name, category, certificate_template_type, certificate_image_url, certificate_field_positions, template_url")
       .eq("id", eventId)
       .single();
 
@@ -342,6 +516,9 @@ serve(async (req: Request) => {
     const coordinatorName = (event.coordinator_name as string) ?? "";
     const chairName = (event.chair_name as string) ?? "";
     const category = (event.category as string) ?? "General";
+    const templateType = (event.certificate_template_type as string) || "none";
+    const bgImageUrl = (event.certificate_image_url as string) || "";
+    const fieldPositions = (event.certificate_field_positions as FieldPositions) || {};
 
     // ── Fetch attendees (attendance rows joined with profiles) ──
     const { data: attendees, error: attErr } = await supabase
@@ -369,18 +546,6 @@ serve(async (req: Request) => {
 
     const existingUserIds = new Set((existing ?? []).map((r: { user_id: string }) => r.user_id));
 
-    // ── Optionally fetch HTML template for string-replace preview storage ──
-    let templateHtml: string | null = null;
-    if (templateUrl) {
-      try {
-        const res = await fetch(templateUrl);
-        templateHtml = await res.text();
-      } catch {
-        // Template fetch failed — continue with pdf-lib PDF path
-        templateHtml = null;
-      }
-    }
-
     // ── Generate per-student ──
     let generated = 0;
     let skipped = 0;
@@ -400,12 +565,24 @@ serve(async (req: Request) => {
         const certId = makeCertId(eventId, userId);
         const storagePath = `${eventId}/${userId}.pdf`;
         let certUrl = "";
+        let pdfBytes: Uint8Array;
 
-        const hasTemplate = !!event.template_url;
-
-        if (!hasTemplate) {
-          // ── Build PDF Natively (Fallback) ──
-          const pdfBytes = await buildCertificatePdf({
+        if (templateType === "image" && bgImageUrl) {
+          // ── Build PDF with PNG/JPG background image & text overlay ──
+          pdfBytes = await buildImageCertificatePdf({
+            bgImageUrl,
+            studentName,
+            eventName: eventTitle,
+            eventDate,
+            coordinatorName,
+            chairName,
+            certificateId: certId,
+            category,
+            positions: fieldPositions,
+          });
+        } else {
+          // ── Fallback: Build PDF Natively ──
+          pdfBytes = await buildCertificatePdf({
             studentName,
             eventName: eventTitle,
             eventDate,
@@ -414,31 +591,27 @@ serve(async (req: Request) => {
             certificateId: certId,
             category,
           });
-
-          // ── Upload PDF to Storage ──
-          const { error: uploadErr } = await supabase.storage
-            .from(STORAGE_BUCKET)
-            .upload(storagePath, pdfBytes, {
-              contentType: "application/pdf",
-              upsert: true,
-            });
-
-          if (uploadErr) {
-            errors.push(`Upload failed for ${userId}: ${uploadErr.message}`);
-            continue;
-          }
-
-          // ── Get signed URL (10-year expiry) ──
-          const { data: signed } = await supabase.storage
-            .from(STORAGE_BUCKET)
-            .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 10);
-
-          certUrl = signed?.signedUrl ?? "";
-        } else {
-          // Client will perform HTML-to-PDF generation.
-          // Set certUrl to a special marker or just the template url
-          certUrl = `template:${event.template_url}`;
         }
+
+        // ── Upload PDF to Storage ──
+        const { error: uploadErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(storagePath, pdfBytes, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+
+        if (uploadErr) {
+          errors.push(`Upload failed for ${userId}: ${uploadErr.message}`);
+          continue;
+        }
+
+        // ── Get signed URL (10-year expiry) ──
+        const { data: signed } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(storagePath, 60 * 60 * 24 * 365 * 10);
+
+        certUrl = signed?.signedUrl ?? "";
 
         // ── Insert certificate row ──
         const { error: insertErr } = await supabase.from("certificates").upsert(
