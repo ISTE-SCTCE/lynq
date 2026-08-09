@@ -30,9 +30,9 @@ export const ChatListScreen: React.FC = () => {
         console.error('Error fetching recent chats:', recentError);
       }
 
-      // 2. Fetch contacts (all users except current user)
+      // 2. Fetch contacts (all profiles except current user)
       const { data: usersData, error: usersError } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, name, role, post, email')
         .neq('id', currentUser.id)
         .order('name');

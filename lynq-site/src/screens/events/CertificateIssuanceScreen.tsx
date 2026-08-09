@@ -64,7 +64,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       
       if (userIds.length > 0) {
         const { data: usersRows, error: uErr } = await supabase
-          .from('users')
+          .from('profiles')
           .select('id, name')
           .in('id', userIds);
 

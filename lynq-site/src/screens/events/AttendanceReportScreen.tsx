@@ -62,7 +62,7 @@ export const AttendanceReportScreen: React.FC = () => {
       
       if (userIds.length > 0) {
         const { data: usersRows, error: uErr } = await supabase
-          .from('users')
+          .from('profiles')
           .select('id, name, roll_number, branch, year, email')
           .in('id', userIds);
 

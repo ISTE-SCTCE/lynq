@@ -54,8 +54,8 @@ const MentronDashboardScreen: React.FC = () => {
       
       // Registered Students & Active Admins from ISTE DB
       const [{ count: membersCount }, { count: execomCount }] = await Promise.all([
-        supabase.from('users').select('*', { count: 'exact', head: true }),
-        supabase.from('users').select('*', { count: 'exact', head: true }).in('role', ['chairman', 'vice-chair', 'secretary', 'treasurer', 'core', 'admin'])
+        supabase.from('profiles').select('*', { count: 'exact', head: true }),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).in('role', ['chairman', 'vice_chairman', 'core_execcom', 'forum_execcom'])
       ]);
       const students = membersCount || 0;
       const admins = execomCount || 0;

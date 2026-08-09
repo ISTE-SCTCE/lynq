@@ -121,12 +121,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fire profile + memberships + global permissions all in parallel (1 roundtrip)
       const [profileRes, membershipsRes, globalPermsRes] = await Promise.all([
         supabase
-          .from('users')
+          .from('profiles')
           .select('id, email, name, role, post, phone, roll_number, branch, forum, is_sudo')
           .eq('id', user.id)
           .single(),
         supabase.from('folder_members')
-          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users:users!folder_members_user_id_fkey(id, name, email, role, post)')
+          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, profiles:profiles!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('user_id', user.id),
         supabase.from('folder_permissions')
           .select('id, folder_id:execom_id, feature, allowed')

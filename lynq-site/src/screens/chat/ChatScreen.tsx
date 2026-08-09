@@ -47,9 +47,9 @@ export const ChatScreen: React.FC = () => {
         .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
         .order('last_message_time', { ascending: false });
 
-      // 2. Fetch contacts (all users except current user)
+      // 2. Fetch contacts (all profiles except current user)
       const { data: usersData } = await supabase
-        .from('users')
+        .from('profiles')
         .select('id, name, role, post, email')
         .neq('id', currentUser.id)
         .order('name');
@@ -87,9 +87,9 @@ export const ChatScreen: React.FC = () => {
       // Load both thread chats and conversation details
       await loadLeftPaneData();
 
-      // 1. Fetch other user details
+      // 1. Fetch other profile details
       const { data: userData, error: userError } = await supabase
-        .from('users')
+        .from('profiles')
         .select()
         .eq('id', userId)
         .single();
