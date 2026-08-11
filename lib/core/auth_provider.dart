@@ -80,24 +80,63 @@ class AuthProvider extends ChangeNotifier {
     _isLoadingUserData = true;
 
     try {
-      // 1. Fetch user profile with timeout
-      final userData = await _supabase
+      // 1. Fetch user profile with timeout and fallback
+      Map<String, dynamic>? userData = await _supabase
           .from('profiles')
           .select()
           .eq('id', _authUser!.id)
-          .single()
+          .maybeSingle()
           .timeout(const Duration(seconds: 15));
+
+      if (userData == null && _authUser!.email != null && _authUser!.email!.isNotEmpty) {
+        userData = await _supabase
+            .from('profiles')
+            .select()
+            .ilike('email', _authUser!.email!)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 10));
+
+        if (userData != null) {
+          try {
+            await _supabase.from('profiles').update({'id': _authUser!.id}).eq('email', _authUser!.email!);
+            userData['id'] = _authUser!.id;
+          } catch (_) {}
+        }
+      }
+
+      if (userData == null) {
+        final newProfile = <String, dynamic>{
+          'id': _authUser!.id,
+          'email': _authUser!.email ?? '',
+          'name': (_authUser!.email ?? '').split('@').first,
+          'role': 'core_execcom',
+          'status': 'active',
+        };
+        try {
+          await _supabase.from('profiles').upsert(newProfile);
+          userData = newProfile;
+        } catch (e) {
+          debugPrint('Error auto-creating profile: $e');
+          userData = newProfile;
+        }
+      }
+
       _currentUser = UserModel.fromJson(userData);
 
-      // 2. Fetch folder memberships with timeout
-      final membershipData = await _supabase
-          .from('folder_members')
-          .select('*, profiles(id, name, email, role, post)')
-          .eq('user_id', _authUser!.id)
-          .timeout(const Duration(seconds: 15));
-      _folderMemberships = (membershipData as List)
-          .map((e) => FolderMemberModel.fromJson(e))
-          .toList();
+      // 2. Fetch folder memberships with fallback
+      try {
+        final membershipData = await _supabase
+            .from('folder_members')
+            .select('*, profiles(id, name, email, role, post)')
+            .eq('user_id', _authUser!.id)
+            .timeout(const Duration(seconds: 15));
+        _folderMemberships = (membershipData as List)
+            .map((e) => FolderMemberModel.fromJson(e))
+            .toList();
+      } catch (e) {
+        debugPrint('Warning fetching folder_members: $e');
+        _folderMemberships = [];
+      }
 
       final folderIds = _folderMemberships.map((m) => m.folderId).toList();
       
@@ -116,21 +155,26 @@ class AuthProvider extends ChangeNotifier {
               ))
           .toList();
 
-      if (folderIds.isNotEmpty) {
-        final permData = await _supabase
-            .from('folder_permissions')
-            .select()
-            .inFilter('execom_id', folderIds)
-            .timeout(const Duration(seconds: 15));
-        final allPerms = (permData as List)
-            .map((e) => FolderPermissionModel.fromJson(e))
-            .toList();
+      try {
+        if (folderIds.isNotEmpty) {
+          final permData = await _supabase
+              .from('folder_permissions')
+              .select()
+              .inFilter('execom_id', folderIds)
+              .timeout(const Duration(seconds: 15));
+          final allPerms = (permData as List)
+              .map((e) => FolderPermissionModel.fromJson(e))
+              .toList();
 
-        _folderPermissions = {};
-        for (final p in allPerms) {
-          _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+          _folderPermissions = {};
+          for (final p in allPerms) {
+            _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+          }
+        } else {
+          _folderPermissions = {};
         }
-      } else {
+      } catch (e) {
+        debugPrint('Warning fetching folder_permissions: $e');
         _folderPermissions = {};
       }
 
