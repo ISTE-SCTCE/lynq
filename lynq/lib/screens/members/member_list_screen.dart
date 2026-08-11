@@ -45,8 +45,8 @@ class _MemberListScreenState extends State<MemberListScreen> with SingleTickerPr
 
     try {
       final data = await Supabase.instance.client
-          .from('members')
-          .select('id, name, email, role, post, designation, phone, iste_id, ui_id, department, plan, plan_type, joined_date, registration_date, forum, forum_name, expiry_date, membership_expiry, status, suspended_until')
+          .from('profiles')
+          .select('id, name, email, role, post, phone, roll_number, branch, membership_plan, membership_date, forum, expiry_date, status, suspended_until')
           .order('created_at', ascending: false);
       _allUsers = (data as List)
           .map((e) => UserModel.fromJson({
@@ -54,14 +54,14 @@ class _MemberListScreenState extends State<MemberListScreen> with SingleTickerPr
                 'name': e['name'],
                 'email': e['email'],
                 'role': e['role'] == 'user' ? 'member' : e['role'],
-                'post': e['post'] ?? e['designation'],
+                'post': e['post'],
                 'phone': e['phone'],
-                'roll_number': e['iste_id'] ?? e['ui_id'],
-                'branch': e['department'],
-                'membership_plan': e['plan'] ?? e['plan_type'],
-                'membership_date': e['joined_date'] ?? e['registration_date'],
-                'forum': e['forum'] ?? e['forum_name'],
-                'expiry_date': e['expiry_date'] ?? e['membership_expiry'],
+                'roll_number': e['roll_number'],
+                'branch': e['branch'],
+                'membership_plan': e['membership_plan'],
+                'membership_date': e['membership_date'],
+                'forum': e['forum'],
+                'expiry_date': e['expiry_date'],
                 'status': e['status'] ?? 'active',
                 'suspended_until': e['suspended_until'],
           }))

@@ -229,7 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .order('deadline', ascending: true)
             .limit(3),
         // Fetch all matching IDs for exact length
-        client.from('members').select('id').not('iste_id', 'is', null).neq('iste_id', ''),
+        client.from('profiles').select('id').eq('is_iste_member', true),
         client.from('folder_members').select('user_id'),
         client.from('events').select('id'),
         client.from('folders').select('id'),

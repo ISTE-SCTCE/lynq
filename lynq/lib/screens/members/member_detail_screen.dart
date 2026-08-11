@@ -34,27 +34,26 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     final supabase = Supabase.instance.client;
     try {
       final data = await supabase
-          .from('members')
-          .select('id, name, email, role, post, designation, phone, iste_id, ui_id, department, plan, plan_type, joined_date, registration_date, forum, forum_name, expiry_date, membership_expiry, status, suspended_until, user_id')
+          .from('profiles')
+          .select('id, name, email, role, post, phone, roll_number, branch, membership_plan, membership_date, forum, expiry_date, status, suspended_until')
           .eq('id', widget.userId)
           .single();
 
-      // Stash user_id from members table for cross-table updates
-      _linkedUserId = data['user_id'] as String?;
+      _linkedUserId = data['id'] as String?;
 
       _user = UserModel.fromJson({
         'id': data['id']?.toString() ?? '',
         'name': data['name'],
         'email': data['email'],
         'role': data['role'] == 'user' ? 'member' : data['role'],
-        'post': data['post'] ?? data['designation'],
+        'post': data['post'],
         'phone': data['phone'],
-        'roll_number': data['iste_id'] ?? data['ui_id'],
-        'branch': data['department'],
-        'membership_plan': data['plan'] ?? data['plan_type'],
-        'membership_date': data['joined_date'] ?? data['registration_date'],
-        'forum': data['forum'] ?? data['forum_name'],
-        'expiry_date': data['expiry_date'] ?? data['membership_expiry'],
+        'roll_number': data['roll_number'],
+        'branch': data['branch'],
+        'membership_plan': data['membership_plan'],
+        'membership_date': data['membership_date'],
+        'forum': data['forum'],
+        'expiry_date': data['expiry_date'],
         'status': data['status'],
         'suspended_until': data['suspended_until'],
       });
@@ -148,16 +147,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
                 setState(() => isSaving = true);
                 try {
                   await Supabase.instance.client
-                      .from('members')
+                      .from('profiles')
                       .update({'role': selectedRole})
                       .eq('id', _user!.id);
-                  // Use the already-loaded user_id — avoids a second DB round-trip
-                  if (_linkedUserId != null) {
-                    await Supabase.instance.client
-                        .from('profiles')
-                        .update({'role': selectedRole})
-                        .eq('id', _linkedUserId!);
-                  }
                   Navigator.pop(context);
                   _loadUser();
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Role updated')));
@@ -308,10 +300,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await supabase.from('members').delete().eq('id', widget.userId);
-      if (_linkedUserId != null) {
-        await supabase.from('profiles').delete().eq('id', _linkedUserId!);
-      }
+      await supabase.from('profiles').delete().eq('id', widget.userId);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -354,13 +343,9 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await supabase.from('members').update({'role': 'member'}).eq('id', widget.userId);
+      await supabase.from('profiles').update({'role': 'member'}).eq('id', widget.userId);
       // Remove from all forums
       await supabase.from('folder_members').delete().eq('user_id', widget.userId);
-      // Sync to users table using the already-loaded _linkedUserId
-      if (_linkedUserId != null) {
-        await supabase.from('profiles').update({'role': 'member'}).eq('id', _linkedUserId!);
-      }
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -430,20 +415,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     final suspendedUntil = DateTime.now().add(Duration(days: confirm));
     
     try {
-      await supabase.from('members').update({
+      await supabase.from('profiles').update({
         'status': 'suspended',
         'suspended_until': suspendedUntil.toIso8601String(),
       }).eq('id', widget.userId);
-      
-      try {
-        final memberData = await supabase.from('members').select('user_id').eq('id', widget.userId).single();
-        if (memberData['user_id'] != null) {
-          await supabase.from('profiles').update({
-            'status': 'suspended',
-            'suspended_until': suspendedUntil.toIso8601String(),
-          }).eq('id', memberData['user_id']);
-        }
-      } catch (_) {}
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -465,19 +440,10 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     
     setState(() => _isLoading = true);
     try {
-      await supabase.from('members').update({
+      await supabase.from('profiles').update({
         'status': 'active',
         'suspended_until': null,
       }).eq('id', widget.userId);
-      
-      try {
-        final memberData = await supabase.from('members').select('user_id').eq('id', widget.userId).single();
-        if (memberData['user_id'] != null) {
-          await supabase.from('profiles').update({
-            'status': 'active',
-            'suspended_until': null,
-          }).eq('id', memberData['user_id']);
-        }
       } catch (_) {}
       
       if (mounted) {

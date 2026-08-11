@@ -231,7 +231,7 @@ class _RegistrationQueueScreenState extends State<RegistrationQueueScreen>
   Future<void> _exportExcel() async {
     setState(() => _isSyncing = true);
     try {
-      final response = await _supabase.from('members').select().order('created_at', ascending: false);
+      final response = await _supabase.from('profiles').select().order('created_at', ascending: false);
       
       var excel = xl.Excel.createExcel();
       xl.Sheet sheetObject = excel['Members'];
@@ -603,14 +603,15 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
       }
 
       // Instead of edge function, we directly insert into the new members table as requested
-      await _supabase.from('members').insert({
-        'iste_id': isteId,
+      await _supabase.from('profiles').insert({
+        'iste_membership_id': isteId,
         'name': reg.name,
         'email': reg.email,
         'phone': reg.phone,
         'branch': reg.branch,
         'role': 'member',
         'status': 'active',
+        'is_iste_member': true,
       });
 
       // Insert was successful since no exception was thrown.
@@ -663,14 +664,15 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
         if (widget.registration.membershipType.contains('1199')) plan = '2 Year';
         else if (widget.registration.membershipType.contains('1499')) plan = '3 Year';
 
-        await _supabase.from('members').insert({
-          'iste_id': isteId,
+        await _supabase.from('profiles').insert({
+          'iste_membership_id': isteId,
           'name': widget.registration.name,
           'email': widget.registration.email,
           'phone': widget.registration.phone,
           'branch': widget.registration.branch,
           'role': 'member',
           'status': 'active',
+          'is_iste_member': true,
         });
       }
 
