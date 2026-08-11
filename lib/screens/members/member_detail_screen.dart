@@ -444,8 +444,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         'status': 'active',
         'suspended_until': null,
       }).eq('id', widget.userId);
-      } catch (_) {}
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Member unsuspended successfully')),
