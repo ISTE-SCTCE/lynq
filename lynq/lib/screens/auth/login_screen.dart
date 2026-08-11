@@ -64,8 +64,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         String msg = e.toString();
         if (msg.startsWith('Exception: ')) msg = msg.replaceFirst('Exception: ', '');
-        if (msg.startsWith('PostgrestException')) {
-           msg = 'Database error checking profile. Please contact an admin.';
+        if (e is PostgrestException) {
+          msg = 'Database error (${e.code}): ${e.message}';
         }
         setState(() {
           _error = msg;
