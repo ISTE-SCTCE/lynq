@@ -8,11 +8,13 @@ class PermissionEngine {
   final UserModel user;
   final List<FolderMemberModel> userFolderMemberships;
   final Map<int, List<FolderPermissionModel>> folderPermissions;
+  final List<FolderPermissionModel> globalPermissions;
 
   const PermissionEngine({
     required this.user,
     this.userFolderMemberships = const [],
     this.folderPermissions = const {},
+    this.globalPermissions = const [],
   });
 
   AppRole get role => AppRole.fromString(user.role);
@@ -92,11 +94,14 @@ class PermissionEngine {
     return fRole == 'chair' || fRole == 'head';
   }
 
-  /// Is a specific feature allowed globally (folder_id: 0)
+  /// Is a specific feature allowed globally (org-wide toggle, not folder-scoped)
   bool isFeatureEnabledGlobally(String feature) {
+    // BUGFIX: was reading folderPermissions[0], relying on a folder with
+    // id=0 that never exists (folders PK is serial starting at 1) — this
+    // always returned false. Now reads from a dedicated globalPermissions
+    // list, populated from the global_feature_permissions table.
     if (isSuspended) return false;
-    final perms = folderPermissions[0] ?? [];
-    final perm = perms.where((p) => p.feature == feature).firstOrNull;
+    final perm = globalPermissions.where((p) => p.feature == feature).firstOrNull;
     return perm?.allowed ?? false;
   }
 
@@ -106,12 +111,12 @@ class PermissionEngine {
   bool get canCreateEvents => !isSuspended && isAtLeastTier3;
 
   /// 2. Report viewing access is limited to Tier 2 and all tiers above.
-  bool get canReadReports => !isSuspended && (isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewReports)));
+  bool get canReadReports => !isSuspended && (isAtLeastTier2 || isFeatureEnabledGlobally(FolderFeature.viewReports));
 
   bool get canUploadReports => !isSuspended && isAtLeastTier4;
 
   /// 5. Full organizational budget viewing access is restricted to Tier 2 and above.
-  bool get canViewTotalBudget => !isSuspended && (isAtLeastTier2 || (isMemberOfFolder(0) && isFeatureEnabledGlobally(FolderFeature.viewTotalBudget)));
+  bool get canViewTotalBudget => !isSuspended && (isAtLeastTier2 || isFeatureEnabledGlobally(FolderFeature.viewTotalBudget));
 
   /// 6. Tier 3 (Forum-Execom) may view their forum budget. No activation gate.
   bool get canAccessScopedBudget => !isSuspended && isAtLeastTier3;
@@ -159,10 +164,14 @@ class PermissionEngine {
     // Effective Tier 1 can do everything in any folder
     if (isEffectivelyTier1) return true;
 
-    // Check folder-specific permission toggle
+    // BUGFIX: membership check now applies uniformly to ALL tiers, including
+    // Tier2. Previously Tier2 skipped this and could act in folders they
+    // were never added to.
+    if (!isMemberOfFolder(folderId)) return false;
+
     final perms = folderPermissions[folderId] ?? [];
 
-    // If checking a regular feature, see if they have global manageAll allowed
+    // If checking a regular feature, see if they have explicit manageAll allowed
     if (feature != FolderFeature.manageAll) {
       final manageAllPerm = perms.where((p) => p.feature == FolderFeature.manageAll).firstOrNull;
       if (manageAllPerm?.allowed ?? false) {
@@ -171,20 +180,10 @@ class PermissionEngine {
     }
 
     final perm = perms.where((p) => p.feature == feature).firstOrNull;
-    
-    // Option A: Default-allow inside folder for Tier 2/3 if not explicitly restricted
-    if (isAtLeastTier2) {
-      if (perm != null) return perm.allowed;
-      return true; 
-    }
 
-    if (!isMemberOfFolder(folderId)) return false;
-
-    if (isAtLeastTier3) {
-      if (perm != null) return perm.allowed;
-      return true;
-    }
-
+    // BUGFIX: default-deny when no explicit permission row exists (was
+    // default-allow for Tier2/Tier3 — any un-configured feature was
+    // silently open). Every feature must be explicitly granted now.
     return perm?.allowed ?? false;
   }
 

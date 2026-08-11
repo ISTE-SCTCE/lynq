@@ -100,23 +100,38 @@ class AuthProvider extends ChangeNotifier {
           .toList();
 
       final folderIds = _folderMemberships.map((m) => m.folderId).toList();
-      // Fetch global permissions (id=0) + any folder the user belongs to.
-      // The if/else was identical — unified into a single query.
-      final permFilter = folderIds.isEmpty
-          ? 'execom_id.eq.0'
-          : 'execom_id.eq.0,execom_id.in.(${folderIds.join(",")})';
-      final permData = await _supabase
-          .from('folder_permissions')
+      
+      final List<Map<String, dynamic>> globalPermData = await _supabase
+          .from('global_feature_permissions')
           .select()
-          .or(permFilter)
-          .timeout(const Duration(seconds: 15));
-      final allPerms = (permData as List)
-          .map((e) => FolderPermissionModel.fromJson(e))
+          .timeout(const Duration(seconds: 10))
+          .catchError((_) => <Map<String, dynamic>>[]);
+          
+      final globalPerms = globalPermData
+          .map((e) => FolderPermissionModel(
+                id: 0,
+                folderId: 0,
+                feature: e['feature'] as String,
+                allowed: e['allowed'] as bool,
+              ))
           .toList();
 
-      _folderPermissions = {};
-      for (final p in allPerms) {
-        _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+      if (folderIds.isNotEmpty) {
+        final permData = await _supabase
+            .from('folder_permissions')
+            .select()
+            .inFilter('execom_id', folderIds)
+            .timeout(const Duration(seconds: 15));
+        final allPerms = (permData as List)
+            .map((e) => FolderPermissionModel.fromJson(e))
+            .toList();
+
+        _folderPermissions = {};
+        for (final p in allPerms) {
+          _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+        }
+      } else {
+        _folderPermissions = {};
       }
 
       // 4. Build permission engine
@@ -124,6 +139,7 @@ class AuthProvider extends ChangeNotifier {
         user: _currentUser!,
         userFolderMemberships: _folderMemberships,
         folderPermissions: _folderPermissions,
+        globalPermissions: globalPerms,
       );
     } catch (e) {
       debugPrint('Error loading user data: $e');
