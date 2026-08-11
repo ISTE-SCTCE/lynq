@@ -2,8 +2,18 @@
 # APK files
 apk/
 debug_apk/
+release_apk/
 *.apk
+*.zip
 
-# Backups
+# Backups & temp
 .agents_backup/
 .claude_backup/
+.temp/
+dist/
+node_modules/
+
+# Worktree directories
+mlynq/
+m_lynq/
+m_lynq_flutter/

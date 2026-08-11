@@ -345,7 +345,33 @@ export const CertificateIssuanceScreen: React.FC = () => {
             </div>
           </GlassCard>
 
-          {/* Action layout */}
+          {/* Image Template card — links to CertificateTemplateCalibrator */}
+          <GlassCard padding="20px">
+            <h3 style={{ fontFamily: 'var(--font-space-grotesk)', fontWeight: 700, fontSize: '16px', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Sparkles size={18} style={{ color: '#f59e0b' }} /> Image Template
+            </h3>
+            {(event as any)?.certificate_template_type === 'image' && (event as any)?.certificate_image_url ? (
+              <div style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(22,192,122,0.07)', border: '1px solid rgba(22,192,122,0.3)' }}>
+                <Check size={14} style={{ color: 'rgb(22,192,122)', verticalAlign: 'middle', marginRight: '6px' }} />
+                <span style={{ fontSize: '13px', color: 'rgb(22,192,122)' }}>Image template configured.</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                  Certificates will use the background image + field positions you calibrated. The Edge Function handles generation automatically.
+                </span>
+              </div>
+            ) : (
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
+                Upload a PNG/JPG background and click to place each text field. No HTML editing needed.
+              </p>
+            )}
+            <button
+              onClick={() => navigate(`/events/${id}/calibrate`)}
+              className="role-filter-chip"
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              {(event as any)?.certificate_template_type === 'image' ? 'Edit Template Layout →' : 'Set Up Image Template →'}
+            </button>
+          </GlassCard>
+
           {isProcessing && (
             <div style={{ padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -370,7 +396,16 @@ export const CertificateIssuanceScreen: React.FC = () => {
           <div style={{ marginTop: '12px' }}>
             <button
               onClick={handlePublishCertificates}
-              disabled={!isCompleted || !uploadedTemplateUrl || pendingCount === 0 || isProcessing}
+              disabled={
+                !isCompleted ||
+                (
+                  // Need either an HTML template URL or an image template configured
+                  !uploadedTemplateUrl &&
+                  (event as any)?.certificate_template_type !== 'image'
+                ) ||
+                pendingCount === 0 ||
+                isProcessing
+              }
               style={{
                 width: '100%',
                 padding: '16px',

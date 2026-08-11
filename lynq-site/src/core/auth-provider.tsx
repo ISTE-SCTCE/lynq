@@ -87,12 +87,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const applyUserState = useCallback((
     parsedUser: UserModel,
     memberships: FolderMemberModel[],
-    permissionsMap: Record<number, FolderPermissionModel[]>
+    permissionsMap: Record<number, FolderPermissionModel[]>,
+    globalPerms: FolderPermissionModel[] = []
   ) => {
     setCurrentUser(parsedUser);
     setFolderMemberships(memberships);
     setFolderPermissions(permissionsMap);
-    setPermissions(new PermissionEngine(parsedUser, memberships, permissionsMap));
+    setPermissions(new PermissionEngine(parsedUser, memberships, permissionsMap, globalPerms));
   }, []);
 
   const loadUserData = useCallback(async (user: User | null, skipCache = false) => {
@@ -128,9 +129,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         supabase.from('folder_members')
           .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, profiles:profiles!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('user_id', user.id),
-        supabase.from('folder_permissions')
-          .select('id, folder_id:execom_id, feature, allowed')
-          .eq('execom_id', 0),
+        supabase.from('global_feature_permissions')
+          .select('feature, allowed'),
       ]);
 
       if (profileRes.error || !profileRes.data) {
@@ -139,23 +139,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const parsedUser = profileRes.data as UserModel;
       const memberships = (membershipsRes.data || []) as unknown as FolderMemberModel[];
+      const globalPermsList = (globalPermsRes.data || []).map(p => ({
+        id: 0,
+        folder_id: 0,
+        feature: p.feature,
+        allowed: p.allowed,
+      })) as FolderPermissionModel[];
 
       // Fetch folder-specific permissions only if the user belongs to any folders
       const folderIds = memberships.map((m) => m.folder_id);
-      let allPerms = (globalPermsRes.data || []) as FolderPermissionModel[];
+      let allPerms: FolderPermissionModel[] = [];
 
       if (folderIds.length > 0) {
         const { data: folderPermsData } = await supabase
           .from('folder_permissions')
           .select('id, folder_id:execom_id, feature, allowed')
           .in('execom_id', folderIds);
-        allPerms = [...allPerms, ...(folderPermsData || []) as FolderPermissionModel[]];
+        allPerms = (folderPermsData || []) as FolderPermissionModel[];
       }
 
       const permissionsMap = buildPermissionsMap(allPerms);
 
       // Apply state + write cache
-      applyUserState(parsedUser, memberships, permissionsMap);
+      applyUserState(parsedUser, memberships, permissionsMap, globalPermsList);
       writeCache(user.id, { user: parsedUser, memberships, permissionsMap });
 
     } catch (e) {

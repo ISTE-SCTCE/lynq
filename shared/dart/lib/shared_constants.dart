@@ -19,57 +19,26 @@ enum AppRole {
   final String label;
   const AppRole(this.level, this.label);
 
+  /// Parse role from the DB. Post-migration, profiles.role is a strict
+  /// PostgreSQL ENUM (app_role) — always one of the 7 canonical values.
+  /// BUGFIX: previously did fuzzy substring matching (`.contains('head')`,
+  /// `.contains('design')` etc) against free-text role/post strings, which
+  /// was necessary when role was unstructured text but is now fragile and
+  /// unnecessary — a post literally containing "head" (e.g. "Overhead
+  /// Logistics") could be misclassified as coreExeccom. Exact match only.
   static AppRole fromString(String? s) {
     if (s == null) return AppRole.member;
-    final normalized = s.toLowerCase().replaceAll(' ', '_').replaceAll('-', '_');
-    
-    if (normalized == 'restricted') return AppRole.restricted;
-    if (normalized == 'panel') return AppRole.panel;
-    if (normalized == 'chairman' || normalized == 'chair') return AppRole.chairman;
-    if (normalized == 'vice_chairman' || normalized == 'vice_chair') return AppRole.viceChairman;
-    
-    // Check for forum roles FIRST to prevent "SWAS Chairman" from becoming Tier 1/2
-    if (normalized.contains('swas') || 
-        normalized.contains('exis') || 
-        normalized.contains('genesis') || 
-        normalized.contains('torq') || 
-        normalized.contains('bits') ||
-        normalized.contains('talk') ||
-        normalized.contains('nexus') ||
-        normalized.contains('forum_execcom') ||
-        normalized.contains('forum_secretary')) {
-      return AppRole.forumExeccom;
-    }
-    
-    // Core Execom roles - strict checking of normalized components
-    if (normalized.contains('core') || 
-        normalized.contains('head') || 
-        normalized.contains('secretary') || 
-        normalized.contains('treasurer') ||
-        normalized.contains('webmaster') ||
-        normalized.contains('sponsorship') ||
-        normalized.contains('logistics') ||
-        normalized.contains('hospitality') ||
-        normalized.contains('public_relations') ||
-        normalized.contains('strategist') ||
-        normalized.contains('media') ||
-        normalized.contains('design') ||
-        normalized.contains('creative') ||
-        normalized.contains('technical') ||
-        normalized.contains('ideation') ||
-        normalized.contains('marketing') ||
-        normalized.contains('coordination')) {
-      return AppRole.coreExeccom;
-    }
-    
-    // Fallback for general forum execom
-    if (normalized.contains('execcom') || 
-        normalized.contains('execom') || 
-        normalized.contains('coordinator')) {
-      return AppRole.forumExeccom;
-    }
-
-    return AppRole.member;
+    final normalized = s.toLowerCase().trim().replaceAll(' ', '_').replaceAll('-', '_');
+    return switch (normalized) {
+      'chairman' => AppRole.chairman,
+      'vice_chairman' => AppRole.viceChairman,
+      'core_execcom' => AppRole.coreExeccom,
+      'forum_execcom' => AppRole.forumExeccom,
+      'panel' => AppRole.panel,
+      'restricted' => AppRole.restricted,
+      'member' => AppRole.member,
+      _ => AppRole.member, // unknown value — safe default, never escalate
+    };
   }
 
   /// Format a database role string for display, preserving forum names (e.g. exis_secretary -> EXIS Secretary)

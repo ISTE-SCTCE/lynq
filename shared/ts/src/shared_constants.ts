@@ -24,57 +24,26 @@ export const AppRoleLabels: Record<AppRole, string> = {
   [AppRole.chairman]: 'Chairman',
 };
 
+// Parse role from the DB. Post-migration, profiles.role is a strict
+// PostgreSQL ENUM (app_role) — always one of the 7 canonical values.
+// BUGFIX: previously did fuzzy substring matching (.includes('head'),
+// .includes('design') etc) against free-text role/post strings, which was
+// necessary when role was unstructured text but is now fragile and
+// unnecessary — a post literally containing "head" (e.g. "Overhead
+// Logistics") could be misclassified as coreExeccom. Exact match only.
 export function appRoleFromString(s?: string): AppRole {
   if (!s) return AppRole.member;
-  const normalized = s.toLowerCase().replace(/ /g, '_').replace(/-/g, '_');
-  
-  if (normalized === 'restricted') return AppRole.restricted;
-  if (normalized === 'panel') return AppRole.panel;
-  if (normalized === 'chairman' || normalized === 'chair') return AppRole.chairman;
-  if (normalized === 'vice_chairman' || normalized === 'vice_chair') return AppRole.viceChairman;
-  
-  // Check for forum roles FIRST to prevent "SWAS Chairman" from becoming Tier 1/2
-  if (normalized.includes('swas') || 
-      normalized.includes('exis') || 
-      normalized.includes('genesis') || 
-      normalized.includes('torq') || 
-      normalized.includes('bits') ||
-      normalized.includes('talk') ||
-      normalized.includes('nexus') ||
-      normalized.includes('forum_execcom') ||
-      normalized.includes('forum_secretary')) {
-    return AppRole.forumExeccom;
+  const normalized = s.toLowerCase().trim().replace(/ /g, '_').replace(/-/g, '_');
+  switch (normalized) {
+    case 'chairman': return AppRole.chairman;
+    case 'vice_chairman': return AppRole.viceChairman;
+    case 'core_execcom': return AppRole.coreExeccom;
+    case 'forum_execcom': return AppRole.forumExeccom;
+    case 'panel': return AppRole.panel;
+    case 'restricted': return AppRole.restricted;
+    case 'member': return AppRole.member;
+    default: return AppRole.member; // unknown value — safe default, never escalate
   }
-  
-  // Core Execom roles
-  if (normalized.includes('core') || 
-      normalized.includes('head') || 
-      normalized.includes('secretary') || 
-      normalized.includes('treasurer') ||
-      normalized.includes('webmaster') ||
-      normalized.includes('sponsorship') ||
-      normalized.includes('logistics') ||
-      normalized.includes('hospitality') ||
-      normalized.includes('public_relations') ||
-      normalized.includes('strategist') ||
-      normalized.includes('media') ||
-      normalized.includes('design') ||
-      normalized.includes('creative') ||
-      normalized.includes('technical') ||
-      normalized.includes('ideation') ||
-      normalized.includes('marketing') ||
-      normalized.includes('coordination')) {
-    return AppRole.coreExeccom;
-  }
-  
-  // Fallback for general forum execom
-  if (normalized.includes('execcom') || 
-      normalized.includes('execom') || 
-      normalized.includes('coordinator')) {
-    return AppRole.forumExeccom;
-  }
-
-  return AppRole.member;
 }
 
 export function appRoleToDbString(role: AppRole): string {

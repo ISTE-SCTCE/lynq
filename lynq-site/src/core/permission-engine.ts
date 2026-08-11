@@ -5,24 +5,25 @@ export class PermissionEngine {
   readonly user: UserModel;
   readonly userFolderMemberships: FolderMemberModel[];
   readonly folderPermissions: Record<number, FolderPermissionModel[]>;
+  readonly globalPermissions: FolderPermissionModel[];
 
   constructor(
     user: UserModel,
     userFolderMemberships: FolderMemberModel[] = [],
-    folderPermissions: Record<number, FolderPermissionModel[]> = {}
+    folderPermissions: Record<number, FolderPermissionModel[]> = {},
+    globalPermissions: FolderPermissionModel[] = []
   ) {
     this.user = user;
     this.userFolderMemberships = userFolderMemberships;
     this.folderPermissions = folderPermissions;
+    this.globalPermissions = globalPermissions;
   }
 
   get role(): AppRole {
-    const dbRole = appRoleFromString(this.user.role);
-    // If DB role underreports access: a user in folder_members is at minimum a forum execom member.
-    if (dbRole < AppRole.forumExeccom && this.userFolderMemberships.length > 0) {
-      return AppRole.forumExeccom;
-    }
-    return dbRole;
+    // BUGFIX: previously auto-promoted any user with 1+ folder memberships
+    // to forumExeccom regardless of actual DB role. Removed — role must
+    // come from profiles.role only. Matches Flutter engine exactly.
+    return appRoleFromString(this.user.role);
   }
 
   /// Check user suspension status
@@ -94,17 +95,20 @@ export class PermissionEngine {
   }
 
   isFeatureEnabledGlobally(feature: string): boolean {
+    // BUGFIX: was reading folderPermissions[0], relying on a folder with
+    // id=0 that never exists (folders PK is serial starting at 1) — this
+    // always returned false. Now reads from a dedicated globalPermissions
+    // map, populated separately from the global_feature_permissions table.
     if (this.isSuspended) return false;
-    const perms = this.folderPermissions[0] || [];
-    const perm = perms.find((p) => p.feature === feature);
+    const perm = this.globalPermissions.find((p) => p.feature === feature);
     return perm ? perm.allowed : false;
   }
 
   // Feature limits
   get canCreateEvents(): boolean { return !this.isSuspended && this.isAtLeastTier3; }
-  get canReadReports(): boolean { return !this.isSuspended && (this.isAtLeastTier2 || (this.isMemberOfFolder(0) && this.isFeatureEnabledGlobally(FolderFeature.viewReports))); }
+  get canReadReports(): boolean { return !this.isSuspended && (this.isAtLeastTier2 || this.isFeatureEnabledGlobally(FolderFeature.viewReports)); }
   get canUploadReports(): boolean { return !this.isSuspended && this.isAtLeastTier4; }
-  get canViewTotalBudget(): boolean { return !this.isSuspended && (this.isAtLeastTier2 || (this.isMemberOfFolder(0) && this.isFeatureEnabledGlobally(FolderFeature.viewTotalBudget))); }
+  get canViewTotalBudget(): boolean { return !this.isSuspended && (this.isAtLeastTier2 || this.isFeatureEnabledGlobally(FolderFeature.viewTotalBudget)); }
   get canAccessScopedBudget(): boolean { return !this.isSuspended && this.isAtLeastTier3; }
   get canViewMembers(): boolean { return !this.isSuspended && this.role !== AppRole.restricted; }
   get isPanel(): boolean { return !this.isSuspended && this.isTier4; }
@@ -137,9 +141,14 @@ export class PermissionEngine {
     if (this.isSuspended) return false;
     if (this.isEffectivelyTier1) return true;
 
+    // BUGFIX: membership check now applies to ALL tiers uniformly, including
+    // Tier2. Previously Tier2 skipped this entirely and could act in folders
+    // they were never added to.
+    if (!this.isMemberOfFolder(folderId)) return false;
+
     const perms = this.folderPermissions[folderId] || [];
 
-    // If checking regular feature, see if manageAll is globally allowed
+    // If checking regular feature, see if manageAll is explicitly allowed
     if (feature !== FolderFeature.manageAll) {
       const manageAllPerm = perms.find((p) => p.feature === FolderFeature.manageAll);
       if (manageAllPerm?.allowed) {
@@ -149,19 +158,9 @@ export class PermissionEngine {
 
     const perm = perms.find((p) => p.feature === feature);
 
-    // Option A: Default-allow inside folder for Tier 2/3
-    if (this.isAtLeastTier2) {
-      if (perm !== undefined) return perm.allowed;
-      return true;
-    }
-
-    if (!this.isMemberOfFolder(folderId)) return false;
-
-    if (this.isAtLeastTier3) {
-      if (perm !== undefined) return perm.allowed;
-      return true;
-    }
-
+    // BUGFIX: default-deny when no explicit permission row exists (was
+    // default-allow for Tier2/Tier3 — meant any un-configured feature was
+    // silently open). Now every feature must be explicitly granted.
     return perm ? perm.allowed : false;
   }
 
