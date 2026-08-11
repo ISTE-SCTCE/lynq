@@ -49,25 +49,6 @@ class _EditMemberScreenState extends State<EditMemberScreen> {
           .from('profiles')
           .update(updates)
           .eq('id', widget.user.id);
-          
-      // Also update the unified members table if it exists
-      final profileRes = await Supabase.instance.client
-          .from('members')
-          .select('user_id')
-          .eq('user_id', widget.user.id);
-          
-      if ((profileRes as List).isNotEmpty) {
-        await Supabase.instance.client
-            .from('members')
-            .update({
-              'name': _nameCtrl.text.trim(),
-              'phone': _phoneCtrl.text.trim(),
-              'roll_number': _rollNoCtrl.text.trim(),
-              'department': _branchCtrl.text.trim(), // In members table it's typically 'department'
-              'year': _yearCtrl.text.trim(),
-            })
-            .eq('user_id', widget.user.id);
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

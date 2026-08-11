@@ -25,7 +25,7 @@ class RegistrationService {
 
   static Future<Map<String, dynamic>> fetchRegistrationData(SupabaseClient supabase) async {
     // 0. Fetch total member count
-    final int totalMembers = await supabase.from('members').count(CountOption.exact);
+    final int totalMembers = await supabase.from('profiles').count(CountOption.exact);
 
     // 1. Fetch live queue from Supabase
     final data = await supabase
