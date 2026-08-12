@@ -83,7 +83,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
       _activeTemplateId ??= 'event_${widget.event.id}';
 
-      if (_activeTemplateId != null) {
+      if (_activeTemplateId != null && RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(_activeTemplateId!)) {
         try {
           final fieldsRes = await _supabase
               .from('certificate_template_fields')
@@ -376,21 +376,30 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
           );
 
-          final signedUrl = await _supabase.storage.from('certificates').createSignedUrl(storagePath, 31536000);
+          final publicCertUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
 
-          await _supabase.from('certificates').upsert({
+          // Validate UUID before passing template_id to Postgres to avoid 22P02 syntax error
+          final bool isUuid = _activeTemplateId != null &&
+              RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(_activeTemplateId!);
+
+          final Map<String, dynamic> certPayload = {
             'event_id': widget.event.id,
             'user_id': userId,
-            'template_id': _activeTemplateId,
             'student_name': name,
             'certificate_number': certNum,
-            'certificate_url': signedUrl,
+            'certificate_url': publicCertUrl,
             'storage_path': storagePath,
-            'file_url': signedUrl,
+            'file_url': publicCertUrl,
             'title': 'Certificate of Participation — ${widget.event.title}',
             'status': 'completed',
             'issued_at': DateTime.now().toIso8601String(),
-          }, onConflict: 'event_id,user_id');
+          };
+
+          if (isUuid) {
+            certPayload['template_id'] = _activeTemplateId;
+          }
+
+          await _supabase.from('certificates').upsert(certPayload, onConflict: 'event_id,user_id');
 
           successCount++;
         } catch (err) {
