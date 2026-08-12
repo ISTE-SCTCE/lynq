@@ -60,17 +60,20 @@ $$;
 -- ── Fix folder_members policies (the recursion source) ─────────────────────
 
 DROP POLICY IF EXISTS "Users read own folder memberships" ON public.folder_members;
+DROP POLICY IF EXISTS "Folder heads read memberships" ON public.folder_members;
+DROP POLICY IF EXISTS "Folder heads manage memberships" ON public.folder_members;
+DROP POLICY IF EXISTS "Execom manages folder members" ON public.folder_members;
+DROP POLICY IF EXISTS "Execom reads all folder members" ON public.folder_members;
+
 CREATE POLICY "Users read own folder memberships" ON public.folder_members FOR SELECT TO authenticated
   USING (user_id = auth.uid());
 
-DROP POLICY IF EXISTS "Folder heads read memberships" ON public.folder_members;
 CREATE POLICY "Folder heads read memberships" ON public.folder_members FOR SELECT TO authenticated
   USING (
     public.my_role_rank() >= public.role_rank('core_execcom')
     OR execom_id IN (SELECT public.my_execom_head_ids())
   );
 
-DROP POLICY IF EXISTS "Folder heads manage memberships" ON public.folder_members;
 CREATE POLICY "Folder heads manage memberships" ON public.folder_members FOR ALL TO authenticated
   USING (
     public.my_role_rank() >= public.role_rank('chairman')
@@ -85,6 +88,7 @@ CREATE POLICY "Folder heads manage memberships" ON public.folder_members FOR ALL
 
 DROP POLICY IF EXISTS "Execom reads folder permissions" ON public.folder_permissions;
 DROP POLICY IF EXISTS "Folder heads manage permissions" ON public.folder_permissions;
+DROP POLICY IF EXISTS "Execom manages folder permissions" ON public.folder_permissions;
 CREATE POLICY "Execom reads folder permissions" ON public.folder_permissions FOR SELECT TO authenticated
   USING (
     public.my_role_rank() >= public.role_rank('core_execcom')
@@ -143,6 +147,26 @@ SELECT * FROM public.folder_permissions LIMIT 1;
 -- ── VERIFY: helper functions work ───────────────────────────────────────
 SELECT public.my_execom_member_ids();
 SELECT public.my_execom_head_ids();
+
+-- ── DIAGNOSTIC 1b: Find any policy at risk of recursion across ALL tables ────
+SELECT
+  tablename,
+  policyname,
+  cmd,
+  qual AS using_clause,
+  with_check
+FROM pg_policies
+WHERE schemaname = 'public'
+  AND (
+    qual ILIKE '%from public.' || tablename || '%'
+    OR qual ILIKE '%from ' || tablename || '%'
+    OR with_check ILIKE '%from public.' || tablename || '%'
+    OR with_check ILIKE '%from ' || tablename || '%'
+  )
+ORDER BY tablename;
+
+-- ── DIAGNOSTIC 1c: Verify prosecdef = true for all helper functions ────────
+SELECT proname, prosecdef FROM pg_proc WHERE proname IN ('my_role_rank', 'my_folder_head_ids', 'my_execom_head_ids', 'my_execom_member_ids', 'is_execom_member');
 
 -- ============================================================================
 -- END OF RECURSION + COLUMN NAME FIX

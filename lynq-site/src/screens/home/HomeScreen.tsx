@@ -63,7 +63,7 @@ export const HomeScreen: React.FC = () => {
         // 3. Fetch exact counts from database dynamically to align with mobile app & backend
         try {
           const [membersRes, execomRes, eventsRes, foldersRes] = await Promise.all([
-            supabase.from('members').select('id', { count: 'exact', head: true }).not('iste_id', 'is', null).neq('iste_id', ''),
+            supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('is_iste_member', true),
             supabase.from('folder_members').select('user_id'),
             supabase.from('events').select('id', { count: 'exact', head: true }),
             supabase.from('folders').select('id', { count: 'exact', head: true })

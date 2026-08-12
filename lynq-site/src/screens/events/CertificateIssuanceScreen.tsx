@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Upload, Check, AlertTriangle, Play, Sparkles, Loader } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Upload, Check, AlertTriangle, Play, Sparkles, Loader, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../../core/supabase-client';
 import { useAuth } from '../../core/auth-provider';
 import { GlassCard } from '../../shared/components/GlassCard';
@@ -35,7 +35,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setIsLoading(true);
     setLastSuccessCount(null);
     try {
-      // 1. Fetch Event Template
+      // 1. Fetch Event Template metadata
       const { data: eventRow, error: eErr } = await supabase
         .from('events')
         .select('*')
@@ -45,7 +45,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       if (eErr) throw eErr;
       if (eventRow) {
         setEvent(eventRow as EventModel);
-        setUploadedTemplateUrl(eventRow.template_url);
+        setUploadedTemplateUrl(eventRow.certificate_image_url || eventRow.template_url || null);
         setIsCompleted(eventRow.attendance_finalized || false);
       }
 
@@ -58,7 +58,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       if (aErr) throw aErr;
       const rows = attendanceRows || [];
 
-      // 3. Fetch user info for unique user ids
+      // 3. Fetch user info for unique user ids from profiles
       const userIds = Array.from(new Set(rows.map(r => r.user_id)));
       let uniqueAttendees: { user_id: string; name: string }[] = [];
       
@@ -97,43 +97,46 @@ export const CertificateIssuanceScreen: React.FC = () => {
     loadStats();
   }, [id]);
 
-  const handleUploadTemplate = async () => {
+  const handleUploadTemplateImage = async () => {
     if (!pickedFile || !id) return;
     setIsProcessing(true);
-    setProgressMessage('Uploading HTML template...');
+    setProgressMessage('Uploading PNG certificate template...');
     try {
-      const ext = pickedFile.name.split('.').pop() || 'html';
-      const fileName = `template_event_${id}_${Date.now()}.${ext}`;
-      const path = `templates/${fileName}`;
+      const ext = pickedFile.name.split('.').pop() || 'png';
+      const fileName = `background_${Date.now()}.${ext}`;
+      const path = `${id}/${fileName}`;
 
-      const { data, error } = await supabase.storage
-        .from('event_posters')
-        .upload(path, pickedFile, {
-          contentType: 'text/html'
-        });
+      const { error: uploadErr } = await supabase.storage
+        .from('certificate_templates')
+        .upload(path, pickedFile, { contentType: pickedFile.type, upsert: true });
 
-      if (error) throw error;
+      if (uploadErr) throw uploadErr;
 
       const { data: { publicUrl } } = supabase.storage
-        .from('event_posters')
+        .from('certificate_templates')
         .getPublicUrl(path);
 
       const { error: updateErr } = await supabase
         .from('events')
-        .update({ template_url: publicUrl })
+        .update({
+          certificate_template_type: 'image',
+          certificate_image_url: publicUrl,
+          template_url: publicUrl,
+        })
         .eq('id', parseInt(id));
 
       if (updateErr) throw updateErr;
 
       setUploadedTemplateUrl(publicUrl);
       setPickedFile(null);
-      alert('HTML template uploaded and configured successfully!');
+      alert('PNG Certificate Template uploaded successfully!');
     } catch (e: any) {
       console.error(e);
       alert('Upload failed: ' + e.message);
     } finally {
       setIsProcessing(false);
       setProgressMessage('');
+      loadStats();
     }
   };
 
@@ -160,8 +163,9 @@ export const CertificateIssuanceScreen: React.FC = () => {
   };
 
   const handlePublishCertificates = async () => {
-    if (!uploadedTemplateUrl) {
-      alert('Please upload an HTML template first.');
+    const imageUrl = event?.certificate_image_url || uploadedTemplateUrl;
+    if (!imageUrl) {
+      alert('Please upload a PNG/JPEG Certificate Template or calibrate layout first.');
       return;
     }
     if (attendees.length === 0) {
@@ -176,7 +180,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
     }
 
     const confirmed = window.confirm(
-      `This will generate certificates for ${eligible.length} attendee(s) of "${event?.title}". Proceed?`
+      `This will publish certificates for ${eligible.length} attendee(s) of "${event?.title}". Proceed?`
     );
     if (!confirmed) return;
 
@@ -187,29 +191,40 @@ export const CertificateIssuanceScreen: React.FC = () => {
     let successCount = 0;
     const total = eligible.length;
 
-    for (let i = 0; i < eligible.length; i++) {
-      const attendee = eligible[i];
-      setProgressMessage(`Publishing for ${attendee.name} (${i + 1}/${total})...`);
-      
-      try {
-        const finalCertUrl = `template:${uploadedTemplateUrl}`;
-        const { error } = await supabase.from('certificates').upsert({
-          user_id: attendee.user_id,
-          event_id: parseInt(id!),
-          student_name: attendee.name,
-          title: `Certificate of Participation — ${event?.title}`,
-          description: `Awarded for attending ${event?.title} on ${event?.date || ''}`,
-          file_url: finalCertUrl,
-          issued_by: currentUser?.id,
-          issued_at: new Date().toISOString()
-        }, { onConflict: 'user_id,event_id' });
+    try {
+      // Invoke Supabase Edge Function generate-certificates
+      const { data: funcData, error: funcErr } = await supabase.functions.invoke('generate-certificates', {
+        body: { eventId: parseInt(id!) },
+      });
 
-        if (error) throw error;
-        successCount++;
-        setProcessedCount(i + 1);
-      } catch (err) {
-        console.error(`Error issuing cert for ${attendee.user_id}:`, err);
+      if (!funcErr && funcData && typeof funcData.generated === 'number') {
+        successCount = funcData.generated;
+      } else {
+        // Fallback direct certificate database record creation
+        for (let i = 0; i < eligible.length; i++) {
+          const attendee = eligible[i];
+          setProgressMessage(`Publishing for ${attendee.name} (${i + 1}/${total})...`);
+
+          const { error } = await supabase.from('certificates').upsert({
+            user_id: attendee.user_id,
+            event_id: parseInt(id!),
+            student_name: attendee.name,
+            title: `Certificate of Participation — ${event?.title}`,
+            description: `Awarded for attending ${event?.title} on ${event?.date || ''}`,
+            file_url: imageUrl,
+            certificate_url: imageUrl,
+            issued_by: currentUser?.id,
+            issued_at: new Date().toISOString()
+          }, { onConflict: 'user_id,event_id' });
+
+          if (!error) {
+            successCount++;
+            setProcessedCount(i + 1);
+          }
+        }
       }
+    } catch (err) {
+      console.error(`Error issuing certificates:`, err);
     }
 
     await loadStats();
@@ -294,28 +309,28 @@ export const CertificateIssuanceScreen: React.FC = () => {
             </GlassCard>
           </div>
 
-          {/* HTML Template upload card */}
+          {/* Image Template Upload Card */}
           <GlassCard padding="20px">
             <h3 style={{ fontFamily: 'var(--font-space-grotesk)', fontWeight: 700, fontSize: '16px', margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Upload size={18} /> HTML Certificate Template
+              <ImageIcon size={18} style={{ color: '#3b82f6' }} /> PNG / JPEG Certificate Template
             </h3>
             {uploadedTemplateUrl ? (
-              <div style={{ marginBottom: '16px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Active Template URL:</span>
+              <div style={{ marginBottom: '16px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(22,192,122,0.07)', border: '1px solid rgba(22,192,122,0.3)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Active PNG Template:</span>
                 <a href={uploadedTemplateUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', color: 'rgb(22, 192, 122)', wordBreak: 'break-all', textDecoration: 'underline' }}>
                   {uploadedTemplateUrl}
                 </a>
               </div>
             ) : (
               <div style={{ fontSize: '13px', color: '#ef4444', marginBottom: '16px' }}>
-                No template uploaded yet. You must upload one to publish certificates.
+                No PNG template uploaded yet. Please upload a background image or set up calibration layout.
               </div>
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input
                 type="file"
-                accept=".html"
+                accept="image/png, image/jpeg"
                 id="picked-template-file"
                 style={{ display: 'none' }}
                 onChange={(e) => {
@@ -328,47 +343,37 @@ export const CertificateIssuanceScreen: React.FC = () => {
                 className="role-filter-chip"
                 style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                Choose HTML File
+                <Upload size={14} /> Choose Image File (PNG / JPG)
               </button>
               <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 {pickedFile ? pickedFile.name : 'No file picked'}
               </span>
               {pickedFile && (
                 <button
-                  onClick={handleUploadTemplate}
+                  onClick={handleUploadTemplateImage}
                   className="role-filter-chip active"
                   style={{ cursor: 'pointer', background: 'rgb(22, 192, 122)', border: 'none', color: 'white' }}
                 >
-                  Upload
+                  Upload Template
                 </button>
               )}
             </div>
           </GlassCard>
 
-          {/* Image Template card — links to CertificateTemplateCalibrator */}
+          {/* Calibrator Card */}
           <GlassCard padding="20px">
             <h3 style={{ fontFamily: 'var(--font-space-grotesk)', fontWeight: 700, fontSize: '16px', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Sparkles size={18} style={{ color: '#f59e0b' }} /> Image Template
+              <Sparkles size={18} style={{ color: '#f59e0b' }} /> Visual Field Calibrator
             </h3>
-            {(event as any)?.certificate_template_type === 'image' && (event as any)?.certificate_image_url ? (
-              <div style={{ marginBottom: '12px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(22,192,122,0.07)', border: '1px solid rgba(22,192,122,0.3)' }}>
-                <Check size={14} style={{ color: 'rgb(22,192,122)', verticalAlign: 'middle', marginRight: '6px' }} />
-                <span style={{ fontSize: '13px', color: 'rgb(22,192,122)' }}>Image template configured.</span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
-                  Certificates will use the background image + field positions you calibrated. The Edge Function handles generation automatically.
-                </span>
-              </div>
-            ) : (
-              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 12px 0' }}>
-                Upload a PNG/JPG background and click to place each text field. No HTML editing needed.
-              </p>
-            )}
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '0 0 14px 0' }}>
+              Click directly on your PNG background image to position Student Name, Event Title, Date, Certificate ID, and Signatures.
+            </p>
             <button
               onClick={() => navigate(`/events/${id}/calibrate`)}
-              className="role-filter-chip"
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              className="role-filter-chip active"
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', background: '#3b82f6', color: 'white', border: 'none', padding: '10px 18px', fontWeight: 600 }}
             >
-              {(event as any)?.certificate_template_type === 'image' ? 'Edit Template Layout →' : 'Set Up Image Template →'}
+              Calibrate Field Layout & Positions →
             </button>
           </GlassCard>
 
@@ -398,11 +403,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
               onClick={handlePublishCertificates}
               disabled={
                 !isCompleted ||
-                (
-                  // Need either an HTML template URL or an image template configured
-                  !uploadedTemplateUrl &&
-                  (event as any)?.certificate_template_type !== 'image'
-                ) ||
+                (!event?.certificate_image_url && !uploadedTemplateUrl) ||
                 pendingCount === 0 ||
                 isProcessing
               }
@@ -410,13 +411,13 @@ export const CertificateIssuanceScreen: React.FC = () => {
                 width: '100%',
                 padding: '16px',
                 borderRadius: '14px',
-                background: (isCompleted && uploadedTemplateUrl && pendingCount > 0 && !isProcessing) ? '#f59e0b' : 'rgba(255,255,255,0.05)',
-                color: (isCompleted && uploadedTemplateUrl && pendingCount > 0 && !isProcessing) ? 'white' : 'var(--text-muted)',
+                background: (isCompleted && (event?.certificate_image_url || uploadedTemplateUrl) && pendingCount > 0 && !isProcessing) ? '#f59e0b' : 'rgba(255,255,255,0.05)',
+                color: (isCompleted && (event?.certificate_image_url || uploadedTemplateUrl) && pendingCount > 0 && !isProcessing) ? 'white' : 'var(--text-muted)',
                 fontFamily: 'var(--font-space-grotesk)',
                 fontWeight: 700,
                 fontSize: '15px',
                 border: 'none',
-                cursor: (isCompleted && uploadedTemplateUrl && pendingCount > 0 && !isProcessing) ? 'pointer' : 'not-allowed',
+                cursor: (isCompleted && (event?.certificate_image_url || uploadedTemplateUrl) && pendingCount > 0 && !isProcessing) ? 'pointer' : 'not-allowed',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',

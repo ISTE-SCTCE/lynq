@@ -34,7 +34,7 @@ export const FolderDetailScreen: React.FC = () => {
         // 2. Fetch folder members joined with users
         const { data: membersData, error: mError } = await supabase
           .from('folder_members')
-          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, users:users!folder_members_user_id_fkey(id, name, email, role, post)')
+          .select('id, folder_id:execom_id, folder_role:execom_role, user_id, joined_at, profiles:profiles!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('execom_id', folderId);
 
         if (mError) throw mError;
@@ -132,8 +132,8 @@ export const FolderDetailScreen: React.FC = () => {
         </div>
 
         <div className="members-list">
-          {members.map((member) => {
-            const u = member.users;
+          {members.map((member: any) => {
+            const u = member.profiles || member.users;
             if (!u) return null;
             return (
               <div key={member.id} className="member-row-card">

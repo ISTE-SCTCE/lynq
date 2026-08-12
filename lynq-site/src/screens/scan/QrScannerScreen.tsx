@@ -14,6 +14,38 @@ interface ScanResult {
   branch?: string;
 }
 
+async function decryptPayload(code: string): Promise<string> {
+  const parts = code.trim().split('.');
+  if (parts.length !== 2) throw new Error('Invalid payload structure');
+
+  let base64Iv = parts[0].replace(/-/g, '+').replace(/_/g, '/');
+  while (base64Iv.length % 4) base64Iv += '=';
+  const ivBytes = Uint8Array.from(atob(base64Iv), c => c.charCodeAt(0));
+
+  const cipherBytes = Uint8Array.from(atob(parts[1]), c => c.charCodeAt(0));
+
+  const secret = (import.meta as any).env?.VITE_QR_SIGNING_SECRET || 'ISTE_QR_SECRET_DEV_FALLBACK_32ch';
+  const encoder = new TextEncoder();
+  const secretBytes = encoder.encode(secret);
+  const keyHash = await window.crypto.subtle.digest('SHA-256', secretBytes);
+
+  const key = await window.crypto.subtle.importKey(
+    'raw',
+    keyHash,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  );
+
+  const decrypted = await window.crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: ivBytes },
+    key,
+    cipherBytes
+  );
+
+  return new TextDecoder().decode(decrypted);
+}
+
 export const QrScannerScreen: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -75,10 +107,14 @@ export const QrScannerScreen: React.FC = () => {
     setIsProcessing(true);
 
     try {
-      // 1. JSON decoding
+      // 1. JSON / AES-256-GCM decoding
       let payload: any;
       try {
-        payload = JSON.parse(code);
+        let jsonStr = code.trim();
+        if (!jsonStr.startsWith('{')) {
+          jsonStr = await decryptPayload(jsonStr);
+        }
+        payload = JSON.parse(jsonStr);
       } catch (_) {
         setLastResult({ success: false, message: 'Invalid QR code signature format.' });
         setIsProcessing(false);

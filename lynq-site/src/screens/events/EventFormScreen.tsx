@@ -77,20 +77,28 @@ export const EventFormScreen: React.FC = () => {
   const uploadTemplate = async (): Promise<string | null> => {
     if (!templateFile) return null;
     try {
-      const ext = templateFile.name.split('.').pop() || 'html';
+      const ext = templateFile.name.split('.').pop() || 'png';
       const fileName = `template_${crypto.randomUUID()}.${ext}`;
       const path = `templates/${fileName}`;
 
       const { data, error } = await supabase.storage
-        .from('event_posters')
+        .from('certificate_templates')
         .upload(path, templateFile, {
-          contentType: 'text/html',
+          contentType: templateFile.type || 'image/png',
+          upsert: true,
         });
 
-      if (error) throw error;
+      if (error) {
+        const { error: fallbackErr } = await supabase.storage
+          .from('event_posters')
+          .upload(path, templateFile, { contentType: templateFile.type || 'image/png', upsert: true });
+        if (fallbackErr) throw fallbackErr;
+        const { data: { publicUrl } } = supabase.storage.from('event_posters').getPublicUrl(path);
+        return publicUrl;
+      }
 
       const { data: { publicUrl } } = supabase.storage
-        .from('event_posters')
+        .from('certificate_templates')
         .getPublicUrl(path);
 
       return publicUrl;
@@ -122,7 +130,7 @@ export const EventFormScreen: React.FC = () => {
         uploadedTemplateUrl = await uploadTemplate();
       }
 
-      const { error } = await supabase.from('events').insert({
+      const { data: newEvent, error } = await supabase.from('events').insert({
         title: title.trim(),
         description: description.trim(),
         date,
@@ -139,11 +147,17 @@ export const EventFormScreen: React.FC = () => {
         coordinator_name: coordinatorName.trim() || null,
         chair_name: chairName.trim() || null,
         template_url: uploadedTemplateUrl,
-      });
+        certificate_image_url: uploadedTemplateUrl,
+        certificate_template_type: 'image',
+      }).select('id').single();
 
       if (error) throw error;
-      alert('Event created successfully!');
-      navigate(folderId ? `/events?folder=${folderId}` : '/events');
+      alert('Event created successfully! Redirecting to calibrate certificate template...');
+      if (newEvent?.id) {
+        navigate(`/events/${newEvent.id}/calibrate`);
+      } else {
+        navigate(folderId ? `/events?folder=${folderId}` : '/events');
+      }
     } catch (e) {
       console.error('Create event error:', e);
       alert('Failed to create event');
@@ -243,11 +257,11 @@ export const EventFormScreen: React.FC = () => {
           />
 
           <div style={{ marginBottom: '16px' }}>
-            <label className="form-input-label">Upload HTML Certificate Template (Optional)</label>
+            <label className="form-input-label">Upload Image Certificate Template (Optional)</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <input
                 type="file"
-                accept=".html"
+                accept="image/*"
                 id="template-file-input"
                 style={{ display: 'none' }}
                 onChange={(e) => {

@@ -43,7 +43,7 @@ class _PermissionManagerScreenState extends State<PermissionManagerScreen> with 
         _supabase.from('profiles').select().order('name'),
         _supabase.from('folders').select().eq('is_forum', true).order('name'),
         _supabase.from('folder_permissions').select(),
-        _supabase.from('folder_members').select('*, users!folder_members_user_id_fkey(*)').eq('execom_id', 0),
+        _supabase.from('folder_members').select('*, profiles!folder_members_user_id_fkey(*)').eq('execom_id', 0),
       ]);
 
       if (mounted) {

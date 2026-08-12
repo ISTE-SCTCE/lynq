@@ -99,23 +99,29 @@ export const PermissionManagerScreen: React.FC = () => {
 
   const handleTogglePermission = async (folderId: number, feature: string, isCurrentlyAllowed: boolean) => {
     try {
-      const existing = allPermissions.find(p => p.folder_id === folderId && p.feature === feature);
-      
-      if (existing) {
+      if (folderId === 0) {
         const { error } = await supabase
-          .from('folder_permissions')
-          .update({ allowed: !isCurrentlyAllowed })
-          .eq('id', existing.id);
+          .from('global_feature_permissions')
+          .upsert({ feature: feature, allowed: !isCurrentlyAllowed }, { onConflict: 'feature' });
         if (error) throw error;
       } else {
-        const { error } = await supabase
-          .from('folder_permissions')
-          .insert({
-            execom_id: folderId,
-            feature: feature,
-            allowed: !isCurrentlyAllowed
-          });
-        if (error) throw error;
+        const existing = allPermissions.find(p => p.folder_id === folderId && p.feature === feature);
+        if (existing) {
+          const { error } = await supabase
+            .from('folder_permissions')
+            .update({ allowed: !isCurrentlyAllowed })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('folder_permissions')
+            .insert({
+              execom_id: folderId,
+              feature: feature,
+              allowed: !isCurrentlyAllowed
+            });
+          if (error) throw error;
+        }
       }
 
       fetchAllData();
