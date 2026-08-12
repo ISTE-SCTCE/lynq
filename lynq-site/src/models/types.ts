@@ -72,6 +72,8 @@ export interface EventModel {
   coordinator_name?: string;
   chair_name?: string;
   template_url?: string;
+  certificate_image_url?: string;
+  certificate_template_type?: string;
 }
 
 export interface AnnouncementModel {
