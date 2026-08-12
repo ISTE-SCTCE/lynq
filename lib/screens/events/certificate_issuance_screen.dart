@@ -399,9 +399,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                         const SizedBox(height: 8),
                         if (_activeTemplateUrl != null) ...[
                           Row(
-                            children: const [
-                              Icon(Icons.check_circle, size: 16, color: accentGreen),
-                              SizedBox(width: 6),
+                            children: [
+                              const Icon(Icons.check_circle, size: 16, color: accentGreen),
+                              const SizedBox(width: 6),
                               Text('Active Image Template Uploaded', style: GoogleFonts.inter(fontSize: 13, color: Colors.white, fontWeight: FontWeight.w600)),
                             ],
                           ),
