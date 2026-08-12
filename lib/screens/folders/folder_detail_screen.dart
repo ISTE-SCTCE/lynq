@@ -60,7 +60,7 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
 
       final memberData = await supabase
           .from('folder_members')
-          .select('*, users!folder_members_user_id_fkey(id, name, email, role, post)')
+          .select('*, profiles!folder_members_user_id_fkey(id, name, email, role, post)')
           .eq('execom_id', widget.folderId)
           .order('execom_role');
       _members = (memberData as List).map((e) => FolderMemberModel.fromJson(e)).toList();

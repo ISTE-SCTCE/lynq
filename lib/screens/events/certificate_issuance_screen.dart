@@ -7,6 +7,8 @@ import '../../core/theme.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
 
+import 'certificate_template_calibrator_screen.dart';
+
 class CertificateIssuanceScreen extends StatefulWidget {
   final EventModel event;
   const CertificateIssuanceScreen({super.key, required this.event});
@@ -129,12 +131,11 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     }
   }
 
-  // ── HTML Template Pick / Upload ──────────────────────────────────────────
+  // ── Image Template Pick / Upload ──────────────────────────────────────────
   Future<void> _pickHtmlTemplate() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['html'],
+        type: FileType.image,
         withData: true,
       );
 
@@ -145,36 +146,46 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         });
       }
     } catch (e) {
-      _showSnack('Error picking file: $e', isError: true);
+      _showSnack('Error picking image: $e', isError: true);
     }
   }
 
   Future<void> _uploadHtmlTemplate() async {
     if (_pickedHtmlBytes == null) {
-      _showSnack('Please select an HTML file first.', isError: true);
+      _showSnack('Please select an image file first.', isError: true);
       return;
     }
 
     setState(() {
       _isProcessing = true;
-      _progressMessage = 'Uploading HTML template…';
+      _progressMessage = 'Uploading Image template…';
     });
 
     try {
-      final fileName = 'template_event_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.html';
+      final ext = _pickedHtmlName?.split('.').last ?? 'png';
+      final fileName = 'template_event_${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
       final path = 'templates/$fileName';
 
-      // Upload to event_posters storage bucket (matching event_form_screen)
-      await _supabase.storage
-          .from('event_posters')
-          .uploadBinary(path, _pickedHtmlBytes!, fileOptions: const FileOptions(contentType: 'text/html'));
+      String url = '';
+      try {
+        await _supabase.storage
+            .from('certificate_templates')
+            .uploadBinary(path, _pickedHtmlBytes!, fileOptions: FileOptions(contentType: 'image/$ext'));
+        url = _supabase.storage.from('certificate_templates').getPublicUrl(path);
+      } catch (_) {
+        await _supabase.storage
+            .from('event_posters')
+            .uploadBinary(path, _pickedHtmlBytes!, fileOptions: FileOptions(contentType: 'image/$ext'));
+        url = _supabase.storage.from('event_posters').getPublicUrl(path);
+      }
 
-      final url = _supabase.storage.from('event_posters').getPublicUrl(path);
-
-      // Update the events table template_url
       await _supabase
           .from('events')
-          .update({'template_url': url})
+          .update({
+            'template_url': url,
+            'certificate_image_url': url,
+            'certificate_template_type': 'image',
+          })
           .eq('id', widget.event.id);
 
       setState(() {
@@ -184,7 +195,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         _isProcessing = false;
         _progressMessage = '';
       });
-      _showSnack('HTML template saved successfully!');
+      _showSnack('Image certificate template saved successfully!');
     } catch (e) {
       setState(() {
         _isProcessing = false;
@@ -360,12 +371,28 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         title: Text('Publish Certificates',
             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
         actions: [
-          if (!_isLoading && !_isProcessing)
+          if (!_isLoading && !_isProcessing) ...[
+            IconButton(
+              icon: const Icon(Icons.tune_rounded, color: Colors.blueAccent),
+              tooltip: 'Calibrate Field Positions',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CertificateTemplateCalibratorScreen(
+                      eventId: widget.event.id,
+                      eventTitle: widget.event.title,
+                    ),
+                  ),
+                );
+              },
+            ),
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               tooltip: 'Refresh stats',
               onPressed: _loadStats,
             ),
+          ],
         ],
       ),
       body: _isLoading
@@ -398,11 +425,11 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                         const SizedBox(height: 20),
                       ],
 
-                      // ── HTML Template Management ────────────────────────
-                      _buildSectionTitle('HTML Certificate Template', isDark),
+                      // ── Image Template Management ────────────────────────
+                      _buildSectionTitle('Image Certificate Template', isDark),
                       const SizedBox(height: 8),
                       Text(
-                        'Configure the HTML layout file which will render personalized certificates dynamically for the attendees.',
+                        'Configure the image template layout file which will render personalized certificates dynamically for the attendees.',
                         style: GoogleFonts.inter(
                             fontSize: 13,
                             color: isDark ? Colors.white54 : Colors.black54),
@@ -667,11 +694,11 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('HTML Template Configured',
+                        Text('Image Template Configured',
                             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green)),
                         const SizedBox(height: 4),
                         Text(
-                          'An active HTML template is attached to this event.',
+                          'An active image template is attached to this event.',
                           style: GoogleFonts.inter(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
                         ),
                       ],
@@ -689,11 +716,11 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('HTML Template Missing',
+                        Text('Image Template Missing',
                             style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.orange)),
                         const SizedBox(height: 4),
                         Text(
-                          'Upload an HTML file to enable certificate issuance.',
+                          'Upload an image file to enable certificate issuance.',
                           style: GoogleFonts.inter(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
                         ),
                       ],
@@ -743,8 +770,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _isProcessing ? null : _pickHtmlTemplate,
-                    icon: const Icon(Icons.html_rounded, size: 18),
-                    label: Text(_pickedHtmlName != null ? 'Change File' : 'Pick HTML File', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                    icon: const Icon(Icons.image_rounded, size: 18),
+                    label: Text(_pickedHtmlName != null ? 'Change File' : 'Pick Image File', style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       foregroundColor: AppTheme.primary,

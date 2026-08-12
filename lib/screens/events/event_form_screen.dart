@@ -11,6 +11,8 @@ import 'package:uuid/uuid.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
+import 'certificate_template_calibrator_screen.dart';
+
 class EventFormScreen extends StatefulWidget {
   final int? folderId;
   const EventFormScreen({super.key, this.folderId});
@@ -88,14 +90,26 @@ class _EventFormScreenState extends State<EventFormScreen> {
       final fileName = 'template_${const Uuid().v4()}.$ext';
       final path = 'templates/$fileName';
       await Supabase.instance.client.storage
-          .from('event_posters')
-          .upload(path, _templateFile!);
+          .from('certificate_templates')
+          .upload(path, _templateFile!, fileOptions: FileOptions(contentType: 'image/$ext'));
       return Supabase.instance.client.storage
-          .from('event_posters')
+          .from('certificate_templates')
           .getPublicUrl(path);
     } catch (e) {
-      debugPrint('Template upload error: $e');
-      return null;
+      try {
+        final ext = _templateFile!.path.split('.').last;
+        final fileName = 'template_${const Uuid().v4()}.$ext';
+        final path = 'templates/$fileName';
+        await Supabase.instance.client.storage
+            .from('event_posters')
+            .upload(path, _templateFile!, fileOptions: FileOptions(contentType: 'image/$ext'));
+        return Supabase.instance.client.storage
+            .from('event_posters')
+            .getPublicUrl(path);
+      } catch (err) {
+        debugPrint('Template upload error: $err');
+        return null;
+      }
     }
   }
 
@@ -106,7 +120,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
       List<String> uploadedPosterUrls = await _uploadPosters();
       String? uploadedTemplateUrl = await _uploadTemplate();
 
-      await Supabase.instance.client.from('events').insert({
+      final newEvent = await Supabase.instance.client.from('events').insert({
         'title': _titleCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
         'details': _detailsCtrl.text.trim(),
@@ -126,10 +140,23 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'chair_name': _chairCtrl.text.trim().isEmpty ? null : _chairCtrl.text.trim(),
         'category': _selectedCategory,
         'template_url': uploadedTemplateUrl,
-      });
+        'certificate_image_url': uploadedTemplateUrl,
+        'certificate_template_type': 'image',
+      }).select('id, title').single();
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Event created'), backgroundColor: Colors.green));
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event created successfully! Opening certificate calibrator...'), backgroundColor: Colors.green),
+        );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CertificateTemplateCalibratorScreen(
+              eventId: newEvent['id'] as int,
+              eventTitle: newEvent['title'] as String?,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
@@ -308,8 +335,7 @@ class _EventFormScreenState extends State<EventFormScreen> {
               GestureDetector(
                 onTap: () async {
                   FilePickerResult? result = await FilePicker.platform.pickFiles(
-                    type: FileType.custom,
-                    allowedExtensions: ['html'],
+                    type: FileType.image,
                   );
                   if (result != null && result.files.single.path != null) {
                     setState(() {
@@ -326,11 +352,11 @@ class _EventFormScreenState extends State<EventFormScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.html_outlined, size: 24, color: _templateFile != null ? Colors.green : Colors.grey),
+                      Icon(Icons.image_outlined, size: 24, color: _templateFile != null ? Colors.green : Colors.grey),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          _templateFile != null ? _templateFile!.path.split(Platform.pathSeparator).last : 'Upload HTML Certificate Template (Optional)',
+                          _templateFile != null ? _templateFile!.path.split(Platform.pathSeparator).last : 'Upload Image Certificate Template (Optional)',
                           style: GoogleFonts.inter(color: _templateFile != null ? Colors.green : Colors.grey),
                         ),
                       ),

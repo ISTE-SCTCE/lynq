@@ -32,14 +32,14 @@ class _ExecomListScreenState extends State<ExecomListScreen> {
     try {
       final data = await Supabase.instance.client
           .from('folder_members')
-          .select('execom_role, folders!inner(name), users!inner(id, name, email, phone, role, post)');
+          .select('execom_role, folders!inner(name), profiles!inner(id, name, email, phone, role, post)');
       
       final Map<String, List<Map<String, dynamic>>> grouped = {};
       final Set<String> uniqueUsers = {};
 
       for (var row in data as List) {
         final folderName = row['folders']['name'] as String;
-        final user = row['users'] as Map<String, dynamic>;
+        final user = row['profiles'] as Map<String, dynamic>;
         uniqueUsers.add(user['id']);
         user['execom_role'] = row['execom_role'];
 

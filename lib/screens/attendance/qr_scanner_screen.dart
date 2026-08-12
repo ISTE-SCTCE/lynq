@@ -7,6 +7,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart' as enc;
 import '../../core/auth_provider.dart';
 
 class QrScannerScreen extends StatefulWidget {
@@ -101,6 +103,26 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     );
   }
 
+  /// Derives a 32-byte AES key from QR_SIGNING_SECRET build-time constant.
+  enc.Key _derivedKey() {
+    const secret = String.fromEnvironment('QR_SIGNING_SECRET', defaultValue: 'ISTE_QR_SECRET_DEV_FALLBACK_32ch');
+    final bytes = utf8.encode(secret);
+    final hash = sha256.convert(bytes).bytes;
+    return enc.Key(Uint8List.fromList(hash));
+  }
+
+  /// Decrypts an AES-256-GCM encrypted QR payload formatted as "<iv_base64url>.<ciphertext_base64>".
+  String _decryptPayload(String encryptedStr) {
+    final parts = encryptedStr.split('.');
+    if (parts.length != 2) throw const FormatException('Invalid QR payload format');
+    final ivBytes = base64Url.decode(parts[0]);
+    final iv = enc.IV(ivBytes);
+    final encrypted = enc.Encrypted.fromBase64(parts[1]);
+    final key = _derivedKey();
+    final encrypter = enc.Encrypter(enc.AES(key, mode: enc.AESMode.gcm));
+    return encrypter.decrypt(encrypted, iv: iv);
+  }
+
   Future<void> _processBarcode(BarcodeCapture capture) async {
     if (_isProcessing) return;
     final code = capture.barcodes.firstOrNull?.rawValue;
@@ -111,9 +133,14 @@ class _QrScannerScreenState extends State<QrScannerScreen>
 
     try {
       // QR payload format: {"uid":"<userId>","token":"<tokenHash>","ts":<timestamp>}
+      // Can be raw JSON or AES-256-GCM encrypted string ("<iv_base64url>.<ciphertext_base64>")
       Map<String, dynamic> payload;
       try {
-        payload = jsonDecode(code) as Map<String, dynamic>;
+        String jsonStr = code.trim();
+        if (!jsonStr.startsWith('{')) {
+          jsonStr = _decryptPayload(jsonStr);
+        }
+        payload = jsonDecode(jsonStr) as Map<String, dynamic>;
       } catch (_) {
         setState(() {
           _lastResult = _ScanResult(success: false, message: 'Invalid QR format');
