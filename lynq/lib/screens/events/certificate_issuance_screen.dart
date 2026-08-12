@@ -58,11 +58,13 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           .maybeSingle();
 
       if (evRow != null) {
-        _isCompleted = evRow['attendance_finalized'] ?? false;
+        _isCompleted = evRow['attendance_finalized'] ?? widget.event.isCompleted;
         _activeTemplateUrl = (evRow['certificate_image_url'] as String?) ?? (evRow['template_url'] as String?);
+      } else {
+        _isCompleted = widget.event.isCompleted;
       }
 
-      // 2. Try fetching Active Template & Fields from certificate_templates table
+      // 2. Fetch Active Template & Fields
       try {
         final tmplRow = await _supabase
             .from('certificate_templates')
@@ -76,7 +78,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           _activeTemplateUrl = (tmplRow['template_file_url'] as String?) ?? _activeTemplateUrl;
         }
       } catch (e) {
-        debugPrint('certificate_templates table check: $e');
+        debugPrint('certificate_templates check: $e');
       }
 
       _activeTemplateId ??= 'event_${widget.event.id}';
@@ -92,26 +94,44 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         } catch (_) {}
       }
 
-      // 3. Fetch Registered Attendees
-      final attRes = await _supabase
-          .from('attendance')
-          .select('user_id')
-          .eq('event_id', widget.event.id);
-      final List attRows = attRes as List? ?? [];
-      final userIds = attRows.map((r) => r['user_id'] as String).toSet().toList();
+      // 3. Fetch Attendees from BOTH attendance and registrations tables
+      final Set<String> allUserIds = {};
 
-      if (userIds.isNotEmpty) {
+      try {
+        final attRes = await _supabase
+            .from('attendance')
+            .select('user_id')
+            .eq('event_id', widget.event.id);
+        for (final r in (attRes as List? ?? [])) {
+          if (r['user_id'] != null) allUserIds.add(r['user_id'] as String);
+        }
+      } catch (_) {}
+
+      try {
+        final regRes = await _supabase
+            .from('registrations')
+            .select('user_id')
+            .eq('event_id', widget.event.id);
+        for (final r in (regRes as List? ?? [])) {
+          if (r['user_id'] != null) allUserIds.add(r['user_id'] as String);
+        }
+      } catch (_) {}
+
+      final userIdsList = allUserIds.toList();
+      if (userIdsList.isNotEmpty) {
         final profilesRes = await _supabase
             .from('profiles')
             .select('id, name')
-            .inFilter('id', userIds);
+            .inFilter('id', userIdsList);
         final List profiles = profilesRes as List? ?? [];
         final profileMap = Map.fromEntries(profiles.map((p) => MapEntry(p['id'] as String, p['name'] as String? ?? 'Member')));
 
-        _attendees = userIds.map((uid) => {
+        _attendees = userIdsList.map((uid) => {
           'user_id': uid,
           'name': profileMap[uid] ?? 'Member',
         }).toList();
+      } else {
+        _attendees = [];
       }
 
       // 4. Fetch Already Issued Certificates
@@ -126,6 +146,40 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       debugPrint('Error loading stats: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _finalizeEventAttendance() async {
+    setState(() {
+      _isProcessing = true;
+      _progressMessage = 'Finalizing event attendance...';
+    });
+    try {
+      await _supabase.from('events').update({
+        'attendance_finalized': true,
+      }).eq('id', widget.event.id);
+
+      setState(() => _isCompleted = true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event marked as Completed! Attendance finalized.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to finalize event: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _progressMessage = '';
+        });
+        _loadStatsAndTemplate();
+      }
     }
   }
 
@@ -152,7 +206,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       final storagePath = 'templates/${widget.event.id}_${DateTime.now().millisecondsSinceEpoch}.$ext';
       String publicUrl = '';
 
-      // 1. Storage Upload with multi-bucket fallback
       try {
         await _supabase.storage.from('certificate_templates').uploadBinary(
           storagePath,
@@ -171,7 +224,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         publicUrl = _supabase.storage.from('event_posters').getPublicUrl(fallbackPath);
       }
 
-      // 2. Table Insert with fallback
       try {
         final tmplRes = await _supabase.from('certificate_templates').insert({
           'event_id': widget.event.id,
@@ -192,7 +244,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
       _activeTemplateUrl = publicUrl;
 
-      // 3. Update events table
       await _supabase.from('events').update({
         'certificate_image_url': publicUrl,
         'template_url': publicUrl,
@@ -251,6 +302,25 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       return;
     }
 
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: darkCardBg,
+        title: Text('Publish Certificates', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text('This will generate and publish certificates for ${eligible.length} attendee(s). Proceed?', style: GoogleFonts.inter(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: accentGreen),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Publish Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
     setState(() {
       _isProcessing = true;
       _processedCount = 0;
@@ -277,7 +347,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         final name = attendee['name'] as String;
 
         setState(() {
-          _progressMessage = 'Generating for $name (${i + 1}/$total)...';
+          _progressMessage = 'Publishing for $name (${i + 1}/$total)...';
           _processedCount = i + 1;
         });
 
@@ -382,7 +452,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                             const SizedBox(width: 16),
                             const Icon(Icons.people, size: 14, color: Colors.white70),
                             const SizedBox(width: 6),
-                            Text('Attendees: ${_attendees.length}', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                            Text('Total Attendees: ${_attendees.length}', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
                           ],
                         ),
                       ],
@@ -390,7 +460,57 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Template Card with Clean Responsive Action Buttons
+                  // Event Finalization Banner
+                  if (!_isCompleted)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.08),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 24),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Attendance Not Finalized', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                                Text('Finalize event attendance before publishing certificates.', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                            onPressed: _isProcessing ? null : _finalizeEventAttendance,
+                            child: const Text('Mark Completed'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: accentGreen.withOpacity(0.08),
+                        border: Border.all(color: accentGreen.withOpacity(0.3)),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle, color: accentGreen, size: 20),
+                          const SizedBox(width: 10),
+                          Text('Event Marked as Completed & Attendance Finalized', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Template Card
                   _buildDarkCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -501,22 +621,22 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Big Action Button
+                  // Big Action Button with Accurate Pending Count
                   SizedBox(
                     width: double.infinity,
                     height: 54,
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.play_arrow, size: 22),
                       label: Text(
-                        'Generate All Pending Certificates ($pendingCount)',
+                        'Publish to $pendingCount Pending Participants',
                         style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.amber[700] : Colors.white12,
-                        foregroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.black : Colors.white38,
+                        backgroundColor: (pendingCount > 0 && _activeTemplateUrl != null && _isCompleted && !_isProcessing) ? Colors.amber[700] : Colors.white12,
+                        foregroundColor: (pendingCount > 0 && _activeTemplateUrl != null && _isCompleted && !_isProcessing) ? Colors.black : Colors.white38,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      onPressed: (pendingCount == 0 || _activeTemplateUrl == null || _isProcessing) ? null : _generateAllCertificates,
+                      onPressed: (pendingCount == 0 || _activeTemplateUrl == null || !_isCompleted || _isProcessing) ? null : _generateAllCertificates,
                     ),
                   ),
                 ],

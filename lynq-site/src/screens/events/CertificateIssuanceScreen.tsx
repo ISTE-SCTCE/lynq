@@ -49,17 +49,26 @@ export const CertificateIssuanceScreen: React.FC = () => {
         setIsCompleted(eventRow.attendance_finalized || false);
       }
 
-      // 2. Fetch Attendance Rows
-      const { data: attendanceRows, error: aErr } = await supabase
-        .from('attendance')
-        .select('user_id')
-        .eq('event_id', parseInt(id));
+      // 2. Fetch Attendance and Registrations Rows
+      const setAllUserIds = new Set<string>();
 
-      if (aErr) throw aErr;
-      const rows = attendanceRows || [];
+      try {
+        const { data: attendanceRows } = await supabase
+          .from('attendance')
+          .select('user_id')
+          .eq('event_id', parseInt(id));
+        (attendanceRows || []).forEach(r => r.user_id && setAllUserIds.add(r.user_id));
+      } catch (_) {}
 
-      // 3. Fetch user info for unique user ids from profiles
-      const userIds = Array.from(new Set(rows.map(r => r.user_id)));
+      try {
+        const { data: regRows } = await supabase
+          .from('registrations')
+          .select('user_id')
+          .eq('event_id', parseInt(id));
+        (regRows || []).forEach(r => r.user_id && setAllUserIds.add(r.user_id));
+      } catch (_) {}
+
+      const userIds = Array.from(setAllUserIds);
       let uniqueAttendees: { user_id: string; name: string }[] = [];
       
       if (userIds.length > 0) {
@@ -68,7 +77,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
           .select('id, name')
           .in('id', userIds);
 
-        if (uErr) throw uErr;
+        if (uErr) console.error(uErr);
         const usersMap = new Map((usersRows || []).map(u => [u.id, u.name]));
         uniqueAttendees = userIds.map(uid => ({
           user_id: uid,
