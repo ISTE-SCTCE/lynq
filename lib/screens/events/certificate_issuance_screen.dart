@@ -325,17 +325,64 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       _isProcessing = true;
       _processedCount = 0;
       _failedCount = 0;
-      _progressMessage = 'Preparing batch generation...';
+      _progressMessage = 'Downloading template image...';
     });
 
     int successCount = 0;
     final total = eligible.length;
 
     try {
-      final client = HttpClient();
-      final req = await client.getUrl(Uri.parse(_activeTemplateUrl!));
-      final res = await req.close();
-      final imageBytes = await res.fold<List<int>>(<int>[], (acc, data) => acc..addAll(data));
+      // Robust Multi-bucket Template Image Fetching
+      List<int> imageBytes = [];
+      String urlStr = _activeTemplateUrl!.trim();
+      final cleanPath = urlStr.replaceFirst('template:', '');
+
+      // Method 1: Try direct download from Supabase Storage buckets if relative path
+      if (!cleanPath.startsWith('http')) {
+        final buckets = ['certificate_templates', 'event_posters', 'certificates'];
+        for (final b in buckets) {
+          try {
+            final downloaded = await _supabase.storage.from(b).download(cleanPath);
+            if (downloaded.isNotEmpty) {
+              imageBytes = downloaded;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Method 2: Try signed URL download
+      if (imageBytes.isEmpty) {
+        final buckets = ['certificate_templates', 'event_posters', 'certificates'];
+        for (final b in buckets) {
+          try {
+            final signedUrl = await _supabase.storage.from(b).createSignedUrl(cleanPath, 300);
+            final client = HttpClient();
+            final req = await client.getUrl(Uri.parse(signedUrl));
+            final res = await req.close();
+            if (res.statusCode == 200) {
+              imageBytes = await res.fold<List<int>>(<int>[], (acc, data) => acc..addAll(data));
+              if (imageBytes.isNotEmpty) break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      // Method 3: Direct HTTP request if full URL
+      if (imageBytes.isEmpty && cleanPath.startsWith('http')) {
+        try {
+          final client = HttpClient();
+          final req = await client.getUrl(Uri.parse(cleanPath));
+          final res = await req.close();
+          if (res.statusCode == 200) {
+            imageBytes = await res.fold<List<int>>(<int>[], (acc, data) => acc..addAll(data));
+          }
+        } catch (_) {}
+      }
+
+      if (imageBytes.isEmpty) {
+        throw Exception('Could not fetch template image from $cleanPath. Check storage permissions.');
+      }
 
       final dateStr = widget.event.date != null
           ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
@@ -378,7 +425,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
           final publicCertUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
 
-          // Validate UUID before passing template_id to Postgres to avoid 22P02 syntax error
           final bool isUuid = _activeTemplateId != null &&
               RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(_activeTemplateId!);
 
@@ -399,16 +445,29 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             certPayload['template_id'] = _activeTemplateId;
           }
 
-          await _supabase.from('certificates').upsert(certPayload, onConflict: 'event_id,user_id');
-
+          final res = await _supabase.from('certificates').upsert(certPayload, onConflict: 'event_id,user_id').select();
+          debugPrint('Certificate upsert success: $res');
           successCount++;
         } catch (err) {
           debugPrint('Error generating cert for $userId: $err');
           _failedCount++;
         }
       }
-    } catch (e) {
-      debugPrint('Batch generation error: $e');
+    } catch (e, st) {
+      debugPrint('Batch generation error: $e\n$st');
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: darkCardBg,
+            title: const Text('Publish Error', style: TextStyle(color: Colors.redAccent)),
+            content: Text('Failed to download template or publish certificates:\n\n$e', style: const TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
