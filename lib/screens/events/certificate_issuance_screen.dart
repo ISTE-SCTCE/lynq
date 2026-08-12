@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,8 +8,8 @@ import '../../core/theme.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
 import 'template_editor_screen.dart';
-import 'package:m_lynq/shared/utils/dynamic_template_parser.dart';
-import 'package:m_lynq/shared/utils/dynamic_certificate_pdf_engine.dart';
+import '../../shared/utils/dynamic_template_parser.dart';
+import '../../shared/utils/dynamic_certificate_pdf_engine.dart';
 
 class CertificateIssuanceScreen extends StatefulWidget {
   final EventModel event;
@@ -36,6 +37,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   String _progressMessage = '';
   int? _lastSuccessCount;
   bool _isCompleted = false;
+
+  static const Color accentGreen = Color(0xFF16C07A);
+  static const Color accentBlue = Color(0xFF3B82F6);
 
   @override
   void initState() {
@@ -91,7 +95,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         final profilesRes = await _supabase
             .from('profiles')
             .select('id, name')
-            .in('id', userIds);
+            .inFilter('id', userIds);
         final List profiles = profilesRes as List? ?? [];
         final profileMap = Map.fromEntries(profiles.map((p) => MapEntry(p['id'] as String, p['name'] as String? ?? 'Member')));
 
@@ -146,7 +150,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
       final publicUrl = _supabase.storage.from('certificate_templates').getPublicUrl(storagePath);
 
-      // Create certificate_templates row
       final tmplRes = await _supabase.from('certificate_templates').insert({
         'event_id': widget.event.id,
         'name': 'Template - ${widget.event.title}',
@@ -159,7 +162,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       _activeTemplateId = tmplRes['id'] as String;
       _activeTemplateUrl = publicUrl;
 
-      // Also update events.certificate_image_url
       await _supabase.from('events').update({
         'certificate_image_url': publicUrl,
         'certificate_template_type': 'image',
@@ -228,11 +230,14 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     final total = eligible.length;
 
     try {
-      // 1. Download template background image bytes
       final client = HttpClient();
       final req = await client.getUrl(Uri.parse(_activeTemplateUrl!));
       final res = await req.close();
       final imageBytes = await res.fold<List<int>>(<int>[], (acc, data) => acc..addAll(data));
+
+      final dateStr = widget.event.date != null
+          ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
+          : '';
 
       for (int i = 0; i < eligible.length; i++) {
         final attendee = eligible[i];
@@ -249,22 +254,19 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           final fieldValues = DynamicTemplateParser.resolveValues(
             event: {
               'title': widget.event.title,
-              'date': widget.event.date,
+              'date': dateStr,
               'location': widget.event.location,
-              'coordinator_name': widget.event.coordinatorName,
             },
             studentName: name,
             certificateId: certNum,
           );
 
-          // Render PDF in background
           final pdfBytes = await DynamicCertificatePdfEngine.renderImageCertificate(
             imageBytes: imageBytes,
             fieldValues: fieldValues,
             fieldConfigs: _fieldConfigs,
           );
 
-          // Upload to Supabase Storage generated-certificates
           final storagePath = '${widget.event.id}/$userId.pdf';
           await _supabase.storage.from('certificates').uploadBinary(
             storagePath,
@@ -274,7 +276,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
           final signedUrl = await _supabase.storage.from('certificates').createSignedUrl(storagePath, 31536000);
 
-          // Insert certificate row
           await _supabase.from('certificates').upsert({
             'event_id': widget.event.id,
             'user_id': userId,
@@ -312,11 +313,14 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   @override
   Widget build(BuildContext context) {
     final pendingCount = _attendees.length - _alreadyIssuedIds.length;
+    final dateStr = widget.event.date != null
+        ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
+        : '';
 
     return Scaffold(
-      backgroundColor: AppTheme.darkBg,
+      backgroundColor: AppTheme.backgroundDark,
       appBar: AppBar(
-        backgroundColor: AppTheme.cardBg,
+        backgroundColor: AppTheme.surfaceDark,
         elevation: 0,
         title: Text('Publish Certificates', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
         actions: [
@@ -337,7 +341,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                       children: [
                         Text(widget.event.title, style: GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                         const SizedBox(height: 4),
-                        Text('Date: ${widget.event.date} | Attendees: ${_attendees.length}', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
+                        Text('Date: $dateStr | Attendees: ${_attendees.length}', style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
                       ],
                     ),
                   ),
@@ -349,13 +353,13 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainState.spaceBetween,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Certificate Template', style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.accentGreen)),
+                            Text('Certificate Template', style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: accentGreen)),
                             ElevatedButton.icon(
                               icon: const Icon(Icons.upload_file, size: 16),
                               label: const Text('Upload PNG/JPG'),
-                              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentBlue),
+                              style: ElevatedButton.styleFrom(backgroundColor: accentBlue),
                               onPressed: _isProcessing ? null : _uploadNewTemplate,
                             ),
                           ],
@@ -367,7 +371,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                           OutlinedButton.icon(
                             icon: const Icon(Icons.edit_note, size: 18),
                             label: const Text('Configure Dynamic Tags & Preview Layout'),
-                            style: OutlinedButton.styleFrom(foregroundColor: AppTheme.accentGreen),
+                            style: OutlinedButton.styleFrom(foregroundColor: accentGreen),
                             onPressed: _openTemplateEditor,
                           ),
                         ] else
@@ -393,7 +397,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                           const SizedBox(height: 12),
                           LinearProgressIndicator(
                             value: _attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0),
-                            color: AppTheme.accentGreen,
+                            color: accentGreen,
                             backgroundColor: Colors.white10,
                           ),
                         ],
@@ -402,8 +406,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                   if (_lastSuccessCount != null)
                     Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: AppTheme.accentGreen.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                      child: Text('Published $_lastSuccessCount certificates successfully!', style: GoogleFonts.inter(color: AppTheme.accentGreen, fontWeight: FontWeight.bold)),
+                      decoration: BoxDecoration(color: accentGreen.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                      child: Text('Published $_lastSuccessCount certificates successfully!', style: GoogleFonts.inter(color: accentGreen, fontWeight: FontWeight.bold)),
                     ),
                   const SizedBox(height: 24),
                   SizedBox(

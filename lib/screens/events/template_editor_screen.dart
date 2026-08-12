@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../models/app_models.dart';
 import '../../shared/widgets/glass_card.dart';
-import 'package:m_lynq/shared/utils/dynamic_template_parser.dart';
+import '../../shared/utils/dynamic_template_parser.dart';
 
 class TemplateEditorScreen extends StatefulWidget {
   final EventModel event;
@@ -31,10 +31,13 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
 
   bool _isLoading = true;
   bool _isSaving = false;
-  bool _showLiveSampleData = true; // Toggle between {{TAG}} and Real Sample Data
+  bool _showLiveSampleData = true;
 
   List<FieldConfig> _fields = [];
   int _selectedFieldIndex = -1;
+
+  static const Color accentGreen = Color(0xFF16C07A);
+  static const Color accentBlue = Color(0xFF3B82F6);
 
   @override
   void initState() {
@@ -54,7 +57,6 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
       if (rows.isNotEmpty) {
         _fields = rows.map((r) => FieldConfig.fromMap(r as Map<String, dynamic>)).toList();
       } else {
-        // Initialize default core fields if none exist
         _fields = [
           FieldConfig(
             id: '',
@@ -121,7 +123,6 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
   Future<void> _saveConfigurations() async {
     setState(() => _isSaving = true);
     try {
-      // Upsert field configurations
       for (final f in _fields) {
         final payload = f.toMap();
         payload['template_id'] = widget.templateId;
@@ -169,9 +170,9 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.darkBg,
+      backgroundColor: AppTheme.backgroundDark,
       appBar: AppBar(
-        backgroundColor: AppTheme.cardBg,
+        backgroundColor: AppTheme.surfaceDark,
         elevation: 0,
         title: Text(
           'Certificate Template Editor',
@@ -184,7 +185,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
               Switch(
                 value: _showLiveSampleData,
                 onChanged: (val) => setState(() => _showLiveSampleData = val),
-                activeColor: AppTheme.accentGreen,
+                activeColor: accentGreen,
               ),
             ],
           ),
@@ -192,7 +193,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
           IconButton(
             icon: _isSaving
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.save, color: AppTheme.accentGreen),
+                : const Icon(Icons.save, color: accentGreen),
             onPressed: _isSaving ? null : _saveConfigurations,
           ),
           const SizedBox(width: 12),
@@ -205,7 +206,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                 // Top controls & tag chip selector
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  color: AppTheme.cardBg,
+                  color: AppTheme.surfaceDark,
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -216,8 +217,8 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: ActionChip(
-                              backgroundColor: isAlreadyAdded ? Colors.white10 : AppTheme.accentBlue.withOpacity(0.2),
-                              label: Text(tagInfo.tag, style: GoogleFonts.inter(fontSize: 12, color: isAlreadyAdded ? Colors.white38 : AppTheme.accentBlue)),
+                              backgroundColor: isAlreadyAdded ? Colors.white10 : accentBlue.withOpacity(0.2),
+                              label: Text(tagInfo.tag, style: GoogleFonts.inter(fontSize: 12, color: isAlreadyAdded ? Colors.white38 : accentBlue)),
                               onPressed: isAlreadyAdded ? null : () => _addNewField(tagInfo),
                             ),
                           );
@@ -251,7 +252,6 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                                   height: displayH,
                                   child: Stack(
                                     children: [
-                                      // Background Image Template
                                       Positioned.fill(
                                         child: Image.network(
                                           widget.templateUrl,
@@ -259,17 +259,14 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                                           errorBuilder: (_, __, ___) => Container(color: Colors.white10, child: const Center(child: Text('Template Image'))),
                                         ),
                                       ),
-                                      // Field Markers Layer
                                       ..._fields.asMap().entries.map((entry) {
                                         final idx = entry.key;
                                         final config = entry.value;
                                         final isSelected = idx == _selectedFieldIndex;
 
-                                        // Convert natural coordinates -> display pixel space
                                         final double dispBoxW = config.width * scale;
                                         final double dispBoxH = config.height * scale;
                                         final double dispX = config.x * scale;
-                                        // Natural Y origin is bottom
                                         final double dispYFromTop = displayH - (config.y * scale) - dispBoxH;
 
                                         double dispLeft = dispX;
@@ -289,7 +286,6 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                                             onTap: () => setState(() => _selectedFieldIndex = idx),
                                             onPanUpdate: (details) {
                                               setState(() {
-                                                // Convert drag back to natural coordinate space
                                                 final double deltaX = details.delta.dx / scale;
                                                 final double deltaY = -details.delta.dy / scale;
                                                 _fields[idx] = config.copyWith(
@@ -303,10 +299,10 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                                               height: dispBoxH,
                                               decoration: BoxDecoration(
                                                 border: Border.all(
-                                                  color: isSelected ? AppTheme.accentGreen : Colors.amber.withOpacity(0.6),
+                                                  color: isSelected ? accentGreen : Colors.amber.withOpacity(0.6),
                                                   width: isSelected ? 2 : 1,
                                                 ),
-                                                color: isSelected ? AppTheme.accentGreen.withOpacity(0.1) : Colors.amber.withOpacity(0.05),
+                                                color: isSelected ? accentGreen.withOpacity(0.1) : Colors.amber.withOpacity(0.05),
                                               ),
                                               alignment: Alignment.center,
                                               child: Text(
@@ -334,18 +330,18 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
                       if (_selectedFieldIndex >= 0 && _selectedFieldIndex < _fields.length)
                         Container(
                           width: 320,
-                          color: AppTheme.cardBg,
+                          color: AppTheme.surfaceDark,
                           padding: const EdgeInsets.all(16),
                           child: SingleChildScrollView(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainState.spaceBetween,
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       _fields[_selectedFieldIndex].tag,
-                                      style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.accentGreen),
+                                      style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold, fontSize: 16, color: accentGreen),
                                     ),
                                     IconButton(
                                       icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -408,7 +404,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainState.spaceBetween,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label, style: GoogleFonts.inter(fontSize: 13, color: Colors.white70)),
             Text(value.toStringAsFixed(0), style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.bold)),
@@ -418,7 +414,7 @@ class _TemplateEditorScreenState extends State<TemplateEditorScreen> {
           value: value.clamp(min, max),
           min: min,
           max: max,
-          activeColor: AppTheme.accentGreen,
+          activeColor: accentGreen,
           onChanged: onChanged,
         ),
       ],
