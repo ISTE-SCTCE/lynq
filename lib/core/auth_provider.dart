@@ -18,11 +18,32 @@ class AuthProvider extends ChangeNotifier {
   bool _isShowingSplash = true;
   bool _isLoadingUserData = false; // guard against concurrent loads
 
+  bool get isLoading => _isLoading;
   User? get authUser => _authUser;
   UserModel? get currentUser => _currentUser;
   PermissionEngine? get permissions => _permissionEngine;
-  AppRole get role => _currentUser != null ? AppRole.fromString(_currentUser!.role) : AppRole.restricted;
-  bool get isLoading => _isLoading;
+  AppRole get role {
+    if (_currentUser == null) return AppRole.restricted;
+    final parsed = AppRole.fromString(_currentUser!.role);
+    if (parsed == AppRole.member) {
+      if (_currentUser!.post != null && _currentUser!.post!.trim().isNotEmpty) {
+        final p = _currentUser!.post!.toLowerCase();
+        if (p.contains('chair') && !p.contains('vice')) {
+          if (p.contains('swas') || p.contains('bits') || p.contains('exis') || p.contains('torq') || p.contains('genesis')) {
+            return AppRole.forumExeccom;
+          }
+          return AppRole.chairman;
+        }
+        if (p.contains('vice')) return AppRole.viceChairman;
+        if (p.contains('panel')) return AppRole.panel;
+        return AppRole.coreExeccom;
+      }
+      if (_folderMemberships.isNotEmpty) {
+        return AppRole.forumExeccom;
+      }
+    }
+    return parsed;
+  }
   bool get isShowingSplash => _isShowingSplash;
   bool get isAuthenticated => _authUser != null && _currentUser != null;
 
