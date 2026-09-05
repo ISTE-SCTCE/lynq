@@ -11,8 +11,6 @@ import 'package:uuid/uuid.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 
-import 'certificate_template_calibrator_screen.dart';
-
 class EventFormScreen extends StatefulWidget {
   final int? folderId;
   const EventFormScreen({super.key, this.folderId});
@@ -40,9 +38,9 @@ class _EventFormScreenState extends State<EventFormScreen> {
 
   final _coordinatorCtrl = TextEditingController();
   final _chairCtrl = TextEditingController();
+  final _templateUrlCtrl = TextEditingController();
   String? _selectedCategory;
   static const _categories = ['Hackathon', 'Workshop', 'Seminar', 'General'];
-  File? _templateFile;
 
   Future<void> _pickImages() async {
     final picker = ImagePicker();
@@ -83,44 +81,14 @@ class _EventFormScreenState extends State<EventFormScreen> {
     return urls;
   }
 
-  Future<String?> _uploadTemplate() async {
-    if (_templateFile == null) return null;
-    try {
-      final ext = _templateFile!.path.split('.').last;
-      final fileName = 'template_${const Uuid().v4()}.$ext';
-      final path = 'templates/$fileName';
-      await Supabase.instance.client.storage
-          .from('certificate_templates')
-          .upload(path, _templateFile!, fileOptions: FileOptions(contentType: 'image/$ext'));
-      return Supabase.instance.client.storage
-          .from('certificate_templates')
-          .getPublicUrl(path);
-    } catch (e) {
-      try {
-        final ext = _templateFile!.path.split('.').last;
-        final fileName = 'template_${const Uuid().v4()}.$ext';
-        final path = 'templates/$fileName';
-        await Supabase.instance.client.storage
-            .from('event_posters')
-            .upload(path, _templateFile!, fileOptions: FileOptions(contentType: 'image/$ext'));
-        return Supabase.instance.client.storage
-            .from('event_posters')
-            .getPublicUrl(path);
-      } catch (err) {
-        debugPrint('Template upload error: $err');
-        return null;
-      }
-    }
-  }
-
   Future<void> _submit() async {
     if (_titleCtrl.text.isEmpty) return;
     setState(() => _isLoading = true);
     try {
       List<String> uploadedPosterUrls = await _uploadPosters();
-      String? uploadedTemplateUrl = await _uploadTemplate();
+      final templateUrl = _templateUrlCtrl.text.trim();
 
-      final newEvent = await Supabase.instance.client.from('events').insert({
+      await Supabase.instance.client.from('events').insert({
         'title': _titleCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
         'details': _detailsCtrl.text.trim(),
@@ -139,24 +107,16 @@ class _EventFormScreenState extends State<EventFormScreen> {
         'coordinator_name': _coordinatorCtrl.text.trim().isEmpty ? null : _coordinatorCtrl.text.trim(),
         'chair_name': _chairCtrl.text.trim().isEmpty ? null : _chairCtrl.text.trim(),
         'category': _selectedCategory,
-        'template_url': uploadedTemplateUrl,
-        'certificate_image_url': uploadedTemplateUrl,
-        'certificate_template_type': 'image',
+        'template_url': templateUrl.isEmpty ? null : templateUrl,
+        'certificate_image_url': templateUrl.isEmpty ? null : templateUrl,
+        'certificate_template_type': 'slides',
       }).select('id, title').single();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Event created successfully! Opening certificate calibrator...'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Event created successfully!'), backgroundColor: Colors.green),
         );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => CertificateTemplateCalibratorScreen(
-              eventId: newEvent['id'] as int,
-              eventTitle: newEvent['title'] as String?,
-            ),
-          ),
-        );
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
@@ -332,44 +292,11 @@ class _EventFormScreenState extends State<EventFormScreen> {
                 prefixIcon: Icons.manage_accounts_outlined,
               ),
               const SizedBox(height: 16),
-              GestureDetector(
-                onTap: () async {
-                  FilePickerResult? result = await FilePicker.platform.pickFiles(
-                    type: FileType.image,
-                  );
-                  if (result != null && result.files.single.path != null) {
-                    setState(() {
-                      _templateFile = File(result.files.single.path!);
-                    });
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _templateFile != null ? Colors.green.withValues(alpha: 0.5) : Colors.transparent),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.image_outlined, size: 24, color: _templateFile != null ? Colors.green : Colors.grey),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _templateFile != null ? _templateFile!.path.split(Platform.pathSeparator).last : 'Upload Image Certificate Template (Optional)',
-                          style: GoogleFonts.inter(color: _templateFile != null ? Colors.green : Colors.grey),
-                        ),
-                      ),
-                      if (_templateFile != null)
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () => setState(() => _templateFile = null),
-                        ),
-                    ],
-                  ),
-                ),
+              CustomTextField(
+                label: 'Google Slides Template Link',
+                controller: _templateUrlCtrl,
+                prefixIcon: Icons.slideshow_rounded,
+                hint: 'https://docs.google.com/presentation/d/...',
               ),
               const SizedBox(height: 16),
               // ── Number of Days ──────────────────────────────────────
