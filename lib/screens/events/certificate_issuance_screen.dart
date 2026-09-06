@@ -155,9 +155,12 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             .select('user_id')
             .eq('event_id', widget.event.id);
         for (final r in (attRes as List? ?? [])) {
-          if (r['user_id'] != null) allUserIds.add(r['user_id'] as String);
+          final uid = r['user_id']?.toString();
+          if (uid != null && uid.isNotEmpty) allUserIds.add(uid);
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Attendance fetch error: $e');
+      }
 
       try {
         final regRes = await _supabase
@@ -165,39 +168,64 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             .select('user_id')
             .eq('event_id', widget.event.id);
         for (final r in (regRes as List? ?? [])) {
-          if (r['user_id'] != null) allUserIds.add(r['user_id'] as String);
+          final uid = r['user_id']?.toString();
+          if (uid != null && uid.isNotEmpty) allUserIds.add(uid);
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Registrations fetch error: $e');
+      }
 
       final userIdsList = allUserIds.toList();
       if (userIdsList.isNotEmpty) {
-        final profilesRes = await _supabase
-            .from('profiles')
-            .select('id, name, email, membership_id')
-            .inFilter('id', userIdsList);
-        final List profiles = profilesRes as List? ?? [];
-        final profileMap = Map.fromEntries(profiles.map((p) => MapEntry(p['id'] as String, p as Map<String, dynamic>)));
+        Map<String, Map<String, dynamic>> profileMap = {};
+        try {
+          // Use iste_membership_id (the actual column in profiles table)
+          final profilesRes = await _supabase
+              .from('profiles')
+              .select('id, name, email, iste_membership_id')
+              .inFilter('id', userIdsList);
+          final List profiles = profilesRes as List? ?? [];
+          for (final p in profiles) {
+            if (p is Map<String, dynamic> && p['id'] != null) {
+              profileMap[p['id'].toString()] = p;
+            }
+          }
+        } catch (e) {
+          debugPrint('Profiles fetch error in certificate issuance: $e');
+        }
 
         _attendees = userIdsList.map((uid) {
           final prof = profileMap[uid];
           return {
             'user_id': uid,
-            'name': (prof?['name'] as String?) ?? 'Member',
+            'name': (prof?['name'] as String?)?.trim().isNotEmpty == true
+                ? (prof!['name'] as String).trim()
+                : 'Member',
             'email': (prof?['email'] as String?) ?? '',
-            'membership_id': (prof?['membership_id'] as String?) ?? '',
+            'membership_id': (prof?['iste_membership_id'] as String?) ??
+                (prof?['membership_id'] as String?) ??
+                '',
           };
         }).toList();
       } else {
         _attendees = [];
       }
 
-      // 4. Fetch Already Issued Certificates
-      final certsRes = await _supabase
-          .from('certificates')
-          .select('user_id')
-          .eq('event_id', widget.event.id);
-      final List certRows = certsRes as List? ?? [];
-      _alreadyIssuedIds = certRows.map((r) => r['user_id'] as String).toSet();
+      // 4. Fetch Already Issued Certificates (isolated so profile or cert issues do not block each other)
+      try {
+        final certsRes = await _supabase
+            .from('certificates')
+            .select('user_id')
+            .eq('event_id', widget.event.id);
+        final List certRows = certsRes as List? ?? [];
+        _alreadyIssuedIds = certRows
+            .map((r) => r['user_id']?.toString())
+            .whereType<String>()
+            .toSet();
+      } catch (e) {
+        debugPrint('Certificates fetch error: $e');
+        _alreadyIssuedIds = {};
+      }
 
     } catch (e) {
       debugPrint('Error loading stats: $e');
@@ -560,26 +588,37 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       return;
     }
 
-    final eligible = _attendees.where((a) => !_alreadyIssuedIds.contains(a['user_id'])).toList();
+    List<Map<String, dynamic>> eligible = _attendees.where((a) => !_alreadyIssuedIds.contains(a['user_id'])).toList();
+    bool isRegenerate = false;
+
     if (eligible.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('All attendees already have certificates.')),
-      );
-      return;
+      if (_attendees.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No attendees found for this event.')),
+        );
+        return;
+      }
+      eligible = List.from(_attendees);
+      isRegenerate = true;
     }
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: darkCardBg,
-        title: Text('Publish Certificates', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Text('This will generate and publish certificates for ${eligible.length} attendee(s). Proceed?', style: GoogleFonts.inter(color: Colors.white70)),
+        title: Text(isRegenerate ? 'Re-publish Certificates' : 'Publish Certificates', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          isRegenerate
+              ? 'All ${eligible.length} attendee(s) already have certificates. Do you want to re-generate and overwrite them with the current template?'
+              : 'This will generate and publish certificates for ${eligible.length} attendee(s). Proceed?',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: accentGreen),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Publish Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            child: Text(isRegenerate ? 'Overwrite & Re-publish' : 'Publish Now', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -666,10 +705,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             },
             studentName: name,
             certificateId: certNum,
-            customOverrides: {
-              'chair_name': _chairNameCtrl.text.trim().isNotEmpty ? _chairNameCtrl.text.trim() : 'Chapter Chair',
-              'coord_name': _coordinatorNameCtrl.text.trim().isNotEmpty ? _coordinatorNameCtrl.text.trim() : 'Event Coordinator',
-            },
+            // No customOverrides — chair/coord names are baked into the template image
           );
 
           final pdfBytes = await DynamicCertificatePdfEngine.renderImageCertificate(
@@ -772,8 +808,12 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: accentGreen))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+          : RefreshIndicator(
+              color: accentGreen,
+              onRefresh: _loadStatsAndTemplate,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1176,6 +1216,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                 ],
               ),
             ),
+          ),
     );
   }
 

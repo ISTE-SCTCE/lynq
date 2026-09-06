@@ -234,15 +234,25 @@ class _QrScannerScreenState extends State<QrScannerScreen>
           .maybeSingle();
 
       if (widget.eventId != null) {
-        // Use atomic RPC to prevent race condition between simultaneous scans:
-        // mark_attendance_atomic does SELECT FOR UPDATE + INSERT in one transaction.
-        final rpcResult = await _supabase.rpc('mark_attendance_atomic', params: {
-          'p_event_id':   widget.eventId,
-          'p_user_id':    userId,
-          'p_token_id':   tokenId,
-          'p_scanned_by': auth.authUser?.id,
-          'p_day_number': _currentDay,
-        }) as Map<String, dynamic>;
+        Map<String, dynamic> rpcResult;
+        try {
+          final res = await _supabase.rpc('mark_attendance_atomic', params: {
+            'p_event_id':   widget.eventId,
+            'p_user_id':    userId,
+            'p_token_id':   tokenId,
+            'p_scanned_by': auth.authUser?.id,
+            'p_day_number': _currentDay,
+          });
+          rpcResult = (res as Map).cast<String, dynamic>();
+        } catch (_) {
+          final res = await _supabase.rpc('mark_attendance_atomic', params: {
+            'p_event_id':   widget.eventId,
+            'p_user_id':    userId,
+            'p_token_id':   tokenId,
+            'p_scanned_by': auth.authUser?.id,
+          });
+          rpcResult = (res as Map).cast<String, dynamic>();
+        }
 
         final bool rpcSuccess = rpcResult['success'] == true;
         final String? rpcError = rpcResult['error'] as String?;
@@ -453,13 +463,25 @@ class _QrScannerScreenState extends State<QrScannerScreen>
                                 }
                               }
 
-                              final rpcResult = await _supabase.rpc('mark_attendance_atomic', params: {
-                                'p_event_id':   event['id'],
-                                'p_user_id':    userId,
-                                'p_token_id':   tokenId,
-                                'p_scanned_by': auth.authUser?.id,
-                                'p_day_number': scanDay,
-                              }) as Map<String, dynamic>;
+                               Map<String, dynamic> rpcResult;
+                               try {
+                                 final res = await _supabase.rpc('mark_attendance_atomic', params: {
+                                   'p_event_id':   event['id'],
+                                   'p_user_id':    userId,
+                                   'p_token_id':   tokenId,
+                                   'p_scanned_by': auth.authUser?.id,
+                                   'p_day_number': scanDay,
+                                 });
+                                 rpcResult = (res as Map).cast<String, dynamic>();
+                               } catch (_) {
+                                 final res = await _supabase.rpc('mark_attendance_atomic', params: {
+                                   'p_event_id':   event['id'],
+                                   'p_user_id':    userId,
+                                   'p_token_id':   tokenId,
+                                   'p_scanned_by': auth.authUser?.id,
+                                 });
+                                 rpcResult = (res as Map).cast<String, dynamic>();
+                               }
 
                               final bool rpcSuccess = rpcResult['success'] == true;
                               final String? rpcError = rpcResult['error'] as String?;
