@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -26,6 +27,20 @@ class AttendeeCertMatch {
   AttendeeCertMatch({
     required this.attendee,
     this.matchedFile,
+    this.matchType = 'none',
+    this.score = 0,
+  });
+}
+
+class CertFileMatch {
+  final CertFileItem file;
+  Map<String, dynamic>? matchedUser;
+  String matchType; // 'exact', 'contains', 'token', 'manual', 'email', 'none'
+  int score;
+
+  CertFileMatch({
+    required this.file,
+    this.matchedUser,
     this.matchType = 'none',
     this.score = 0,
   });
@@ -66,6 +81,13 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   final _driveUrlCtrl = TextEditingController();
   final List<CertFileItem> _manualFiles = [];
   final Map<String, String> _manualOverrides = {}; // userId -> fileName
+
+  // Non-Attendance List Mode State
+  bool _publishWithoutAttendance = false;
+  List<Map<String, dynamic>> _allMlynqUsers = [];
+  bool _isLoadingMlynqUsers = false;
+  bool _isFetchingDrive = false;
+  final Map<String, String> _fileToUserManualOverrides = {}; // fileName -> userId
 
   final _slidesUrlCtrl = TextEditingController();
   final _chairNameCtrl = TextEditingController();
@@ -227,10 +249,40 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         _alreadyIssuedIds = {};
       }
 
+      // 5. Fetch all m-Lynq profiles for 'Publish without Attendance List' mode
+      await _loadAllMlynqProfiles(silent: true);
+
     } catch (e) {
       debugPrint('Error loading stats: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadAllMlynqProfiles({bool silent = false}) async {
+    if (!silent) setState(() => _isLoadingMlynqUsers = true);
+    try {
+      final profilesRes = await _supabase
+          .from('profiles')
+          .select('id, name, email, iste_membership_id')
+          .order('name');
+      final List profiles = profilesRes as List? ?? [];
+      _allMlynqUsers = profiles.map((p) {
+        return {
+          'user_id': p['id']?.toString() ?? '',
+          'name': (p['name'] as String?)?.trim().isNotEmpty == true
+              ? (p['name'] as String).trim()
+              : 'Member',
+          'email': (p['email'] as String?) ?? '',
+          'membership_id': (p['iste_membership_id'] as String?) ??
+              (p['membership_id'] as String?) ??
+              '',
+        };
+      }).toList();
+    } catch (e) {
+      debugPrint('Error loading all mlynq profiles: $e');
+    } finally {
+      if (!silent && mounted) setState(() => _isLoadingMlynqUsers = false);
     }
   }
 
@@ -239,10 +291,199 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     return input
         .toLowerCase()
         .replaceAll(RegExp(r'\.(pdf|png|jpg|jpeg)$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'^(certificate|cert|participation|attendance)[_\-\s]+', caseSensitive: false), '')
         .replaceAll(RegExp(r'[_\-.]+'), ' ')
         .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  // Multi-tier matching engine for Non-Attendance List mode (File -> m-Lynq User)
+  List<CertFileMatch> _calculateMatchesForFiles() {
+    return _manualFiles.map((file) {
+      // 0. Manual Override
+      if (_fileToUserManualOverrides.containsKey(file.name)) {
+        final overrideUserId = _fileToUserManualOverrides[file.name];
+        final matched = _allMlynqUsers.cast<Map<String, dynamic>?>().firstWhere(
+              (u) => u?['user_id'] == overrideUserId,
+              orElse: () => null,
+            );
+        return CertFileMatch(
+          file: file,
+          matchedUser: matched,
+          matchType: 'manual',
+          score: 100,
+        );
+      }
+
+      final cleanFile = _normalizeText(file.name);
+      final fileTokens = cleanFile.split(' ').where((t) => t.length > 1).toList();
+
+      Map<String, dynamic>? bestUser;
+      String bestType = 'none';
+      int bestScore = 0;
+
+      for (final user in _allMlynqUsers) {
+        final cleanStudent = _normalizeText(user['name'] as String? ?? '');
+        final studentTokens = cleanStudent.split(' ').where((t) => t.length > 1).toList();
+        final cleanEmail = user['email'] != null && (user['email'] as String).isNotEmpty
+            ? _normalizeText((user['email'] as String).split('@').first)
+            : '';
+        final cleanMemberId = user['membership_id'] != null
+            ? _normalizeText(user['membership_id'] as String)
+            : '';
+
+        // 1. Exact match
+        if (cleanFile == cleanStudent && cleanFile.isNotEmpty) {
+          bestUser = user;
+          bestType = 'exact';
+          bestScore = 100;
+          break; // Perfect match
+        }
+
+        // 2. Contains match
+        if (cleanStudent.length >= 3 && cleanFile.contains(cleanStudent)) {
+          if (bestScore < 90) {
+            bestUser = user;
+            bestType = 'contains';
+            bestScore = 90;
+          }
+        } else if (cleanFile.length >= 3 && cleanStudent.contains(cleanFile)) {
+          if (bestScore < 85) {
+            bestUser = user;
+            bestType = 'contains';
+            bestScore = 85;
+          }
+        }
+
+        // 3. Token match
+        if (studentTokens.isNotEmpty) {
+          final matchedCount = studentTokens.where((st) => fileTokens.contains(st)).length;
+          final ratio = matchedCount / studentTokens.length;
+          if (ratio == 1.0 && bestScore < 88) {
+            bestUser = user;
+            bestType = 'token';
+            bestScore = 88;
+          } else if (ratio >= 0.6 && bestScore < 70) {
+            final calculated = (ratio * 70).round();
+            if (calculated > bestScore) {
+              bestUser = user;
+              bestType = 'token';
+              bestScore = calculated;
+            }
+          }
+        }
+
+        // 4. Identifier match
+        if (cleanEmail.isNotEmpty && cleanFile.contains(cleanEmail) && bestScore < 80) {
+          bestUser = user;
+          bestType = 'email';
+          bestScore = 80;
+        }
+        if (cleanMemberId.isNotEmpty && cleanFile.contains(cleanMemberId) && bestScore < 80) {
+          bestUser = user;
+          bestType = 'membership_id';
+          bestScore = 80;
+        }
+      }
+
+      return CertFileMatch(
+        file: file,
+        matchedUser: bestScore >= 60 ? bestUser : null,
+        matchType: bestScore >= 60 ? bestType : 'none',
+        score: bestScore,
+      );
+    }).toList();
+  }
+
+  // Dialog to manually assign an m-Lynq user to a file
+  Future<void> _showUserSelectDialog(String fileName) async {
+    String search = '';
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          final filtered = _allMlynqUsers.where((u) {
+            final name = (u['name'] as String? ?? '').toLowerCase();
+            final email = (u['email'] as String? ?? '').toLowerCase();
+            final q = search.toLowerCase();
+            return name.contains(q) || email.contains(q);
+          }).toList();
+
+          return AlertDialog(
+            backgroundColor: darkCardBg,
+            title: Text('Assign m-Lynq User', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 420,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Certificate file: $fileName', style: const TextStyle(color: Colors.white70, fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 12),
+                  TextField(
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search by student name or email...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      prefixIcon: const Icon(Icons.search, color: Colors.white60),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.05),
+                    ),
+                    onChanged: (val) => setDlgState(() => search = val),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Showing ${filtered.length} m-Lynq user(s):', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                      itemBuilder: (context, idx) {
+                        final u = filtered[idx];
+                        final isSelected = _fileToUserManualOverrides[fileName] == u['user_id'];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          title: Text(u['name'] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                          subtitle: Text('${u['email']}${u['membership_id'] != '' ? ' • ID: ${u['membership_id']}' : ''}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle, color: accentGreen, size: 18)
+                              : const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 14),
+                          onTap: () {
+                            setState(() {
+                              _fileToUserManualOverrides[fileName] = u['user_id'] as String;
+                            });
+                            Navigator.of(ctx).pop();
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _fileToUserManualOverrides.remove(fileName);
+                  });
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Clear Assignment', style: TextStyle(color: Colors.redAccent)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   // Multi-tier matching engine
@@ -508,6 +749,279 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     }
   }
 
+  Future<void> _fetchCertificatesFromDrive() async {
+    final rawUrl = _driveUrlCtrl.text.trim();
+    if (rawUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a Google Drive link first.')),
+      );
+      return;
+    }
+
+    setState(() => _isFetchingDrive = true);
+
+    try {
+      // 1. Check if it is a Drive file or ZIP download link
+      final fileIdMatch = RegExp(r'(?:file\/d\/|open\?id=|uc\?id=|drive\.google\.com\/uc\?export=download&id=)([a-zA-Z0-9_-]+)').firstMatch(rawUrl);
+      final folderIdMatch = RegExp(r'drive\.google\.com\/(?:drive\/(?:u\/\d+\/)?folders\/)([a-zA-Z0-9_-]+)').firstMatch(rawUrl);
+
+      if (fileIdMatch != null) {
+        final fileId = fileIdMatch.group(1)!;
+        final downloadUrl = 'https://drive.google.com/uc?export=download&id=$fileId';
+
+        final client = HttpClient();
+        client.autoUncompress = true;
+        final req = await client.getUrl(Uri.parse(downloadUrl));
+        req.followRedirects = true;
+        req.maxRedirects = 5;
+        final res = await req.close();
+
+        List<int> bytes = await res.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
+
+        // Check if there is a Google large file confirmation page
+        if (bytes.length < 60000) {
+          try {
+            final htmlStr = utf8.decode(bytes);
+            final confirmToken = RegExp(r'confirm=([0-9a-zA-Z_-]+)').firstMatch(htmlStr)?.group(1);
+            if (confirmToken != null) {
+              final confirmUrl = 'https://drive.google.com/uc?export=download&confirm=$confirmToken&id=$fileId';
+              final confirmReq = await client.getUrl(Uri.parse(confirmUrl));
+              confirmReq.followRedirects = true;
+              final confirmRes = await confirmReq.close();
+              bytes = await confirmRes.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
+            }
+          } catch (_) {}
+        }
+
+        if (bytes.isEmpty) {
+          throw Exception('Downloaded file is empty or link is not public.');
+        }
+
+        final List<CertFileItem> extracted = [];
+
+        // Check if it's a ZIP archive (magic bytes PK = 0x50, 0x4B)
+        if (bytes.length > 4 && bytes[0] == 0x50 && bytes[1] == 0x4B) {
+          final archive = ZipDecoder().decodeBytes(bytes);
+          for (final f in archive) {
+            if (f.isFile) {
+              final fname = f.name.split('/').last;
+              if (fname.startsWith('.') || fname.startsWith('__MACOSX')) continue;
+              final fext = fname.split('.').last.toLowerCase();
+              if (['pdf', 'png', 'jpg', 'jpeg'].contains(fext)) {
+                extracted.add(CertFileItem(
+                  name: fname,
+                  bytes: f.content as List<int>,
+                  extension: fext,
+                ));
+              }
+            }
+          }
+        } else if (bytes.length > 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46) {
+          // Direct PDF
+          extracted.add(CertFileItem(
+            name: 'drive_certificate.pdf',
+            bytes: bytes,
+            extension: 'pdf',
+          ));
+        } else if (bytes.length > 4 && ((bytes[0] == 0x89 && bytes[1] == 0x50) || (bytes[0] == 0xFF && bytes[1] == 0xD8))) {
+          // Direct Image
+          final ext = bytes[0] == 0x89 ? 'png' : 'jpg';
+          extracted.add(CertFileItem(
+            name: 'drive_certificate.$ext',
+            bytes: bytes,
+            extension: ext,
+          ));
+        } else {
+          throw Exception('The link did not return a valid ZIP, PDF, or image file. Please ensure it is publicly shared.');
+        }
+
+        if (extracted.isEmpty) {
+          throw Exception('No valid certificate files (.pdf, .png, .jpg) found inside the archive.');
+        }
+
+        setState(() {
+          final existingNames = _manualFiles.map((f) => f.name).toSet();
+          for (final item in extracted) {
+            if (!existingNames.contains(item.name)) {
+              _manualFiles.add(item);
+            }
+          }
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Successfully imported ${extracted.length} certificate(s) from Drive!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else if (folderIdMatch != null) {
+        // Google Drive Folder link
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: darkCardBg,
+              title: Text('Google Drive Folder Link', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+              content: Text(
+                'Google requires a browser session to package entire folders into a ZIP archive.\n\n'
+                'To load certificates from this folder:\n'
+                '1. Tap "Open Drive" to view the folder in browser\n'
+                '2. Click "Download All" to save the folder as a .ZIP\n'
+                '3. Tap "Select PDFs, Images, or a .ZIP Archive" below to import all certificates instantly!\n\n'
+                'Or, upload the ZIP file directly to Google Drive and paste the file link here.',
+                style: GoogleFonts.inter(color: Colors.white70, fontSize: 13),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                  icon: const Icon(Icons.open_in_browser, size: 16),
+                  label: const Text('Open Drive'),
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    if (await canLaunchUrl(Uri.parse(rawUrl))) {
+                      await launchUrl(Uri.parse(rawUrl), mode: LaunchMode.externalApplication);
+                    }
+                  },
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        throw Exception('Unrecognized Google Drive URL format. Please paste a valid Google Drive file or folder link.');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to import from Drive: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isFetchingDrive = false);
+    }
+  }
+
+  Future<void> _publishCertificatesWithoutAttendance() async {
+    final fileMatches = _calculateMatchesForFiles();
+    final toPublish = fileMatches.where((m) => m.matchedUser != null && !_alreadyIssuedIds.contains(m.matchedUser!['user_id'])).toList();
+
+    if (toPublish.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No pending matched certificates to publish.')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: darkCardBg,
+        title: Text(
+          'Publish without Attendance List',
+          style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Upload and issue certificates for ${toPublish.length} matched participant(s) directly to their m-Lynq accounts? (No prior attendance list required)',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: accentGreen),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Publish Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _isProcessing = true;
+      _processedCount = 0;
+      _failedCount = 0;
+      _progressMessage = 'Distributing certificates to m-Lynq users...';
+    });
+
+    int successCount = 0;
+    final total = toPublish.length;
+
+    for (int i = 0; i < toPublish.length; i++) {
+      final item = toPublish[i];
+      final uid = item.matchedUser!['user_id'] as String;
+      final sname = item.matchedUser!['name'] as String;
+      final file = item.file;
+
+      setState(() {
+        _progressMessage = 'Publishing for $sname (${i + 1}/$total)...';
+        _processedCount = i + 1;
+      });
+
+      try {
+        final storagePath = '${widget.event.id}/$uid.${file.extension}';
+        final mimeType = file.extension == 'pdf' ? 'application/pdf' : 'image/${file.extension}';
+
+        await _supabase.storage.from('certificates').uploadBinary(
+          storagePath,
+          Uint8List.fromList(file.bytes),
+          fileOptions: FileOptions(contentType: mimeType, upsert: true),
+        );
+
+        final publicUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
+
+        await _supabase.from('certificates').upsert({
+          'event_id': widget.event.id,
+          'user_id': uid,
+          'student_name': sname,
+          'certificate_url': publicUrl,
+          'file_url': publicUrl,
+          'storage_path': storagePath,
+          'issued_at': DateTime.now().toIso8601String(),
+          'title': 'Certificate of Participation — ${widget.event.title}',
+          'description': 'Awarded for attending ${widget.event.title}',
+        }, onConflict: 'event_id,user_id');
+
+        // Optional attendance sync so they also appear as present for this event
+        try {
+          await _supabase.from('attendance').upsert({
+            'event_id': widget.event.id,
+            'user_id': uid,
+          }, onConflict: 'event_id,user_id');
+        } catch (_) {}
+
+        successCount++;
+      } catch (err) {
+        debugPrint('Publish without attendance error for $sname: $err');
+        _failedCount++;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _progressMessage = '';
+        _lastSuccessCount = successCount;
+      });
+      _loadStatsAndTemplate();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Successfully published $successCount certificate(s) to m-Lynq users!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   Future<void> _finalizeEventAttendance() async {
     setState(() {
       _isProcessing = true;
@@ -673,12 +1187,6 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         }
       }
 
-      bool isValidImage(List<int> bytes) {
-        if (bytes.length < 4) return false;
-        if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return true;
-        if (bytes[0] == 0xFF && bytes[1] == 0xD8) return true;
-        return false;
-      }
 
 
       final dateStr = widget.event.date != null
@@ -791,6 +1299,10 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     final pendingCount = _attendees.length - _alreadyIssuedIds.length;
     final matches = _calculateMatches();
     final pendingMatchedCount = matches.where((m) => m.matchedFile != null && !_alreadyIssuedIds.contains(m.attendee['user_id'])).length;
+
+    final fileMatches = _calculateMatchesForFiles();
+    final pendingFileMatchedCount = fileMatches.where((m) => m.matchedUser != null && !_alreadyIssuedIds.contains(m.matchedUser!['user_id'])).length;
+
     final dateStr = widget.event.date != null
         ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
         : 'N/A';
@@ -1020,8 +1532,78 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Google Drive & Direct File Distribution', style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber)),
-                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Google Drive & File Distribution',
+                                style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber),
+                              ),
+                              if (_isLoadingMlynqUsers)
+                                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: accentGreen)),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Option: Publish without Attendance List (Toggle Card)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: _publishWithoutAttendance ? accentGreen.withOpacity(0.12) : Colors.white.withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _publishWithoutAttendance ? accentGreen.withOpacity(0.4) : Colors.white12,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _publishWithoutAttendance ? Icons.supervised_user_circle_rounded : Icons.people_outline_rounded,
+                                  color: _publishWithoutAttendance ? accentGreen : Colors.white70,
+                                  size: 26,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Publish without Attendance List',
+                                        style: GoogleFonts.spaceGrotesk(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _publishWithoutAttendance
+                                            ? 'Active: Matching files against all ${_allMlynqUsers.length} registered m-Lynq students'
+                                            : 'Inactive: Matching only against ${_attendees.length} event attendees',
+                                        style: GoogleFonts.inter(
+                                          color: Colors.white60,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: _publishWithoutAttendance,
+                                  activeColor: accentGreen,
+                                  onChanged: (val) {
+                                    setState(() => _publishWithoutAttendance = val);
+                                    if (val && _allMlynqUsers.isEmpty) {
+                                      _loadAllMlynqProfiles();
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Google Drive Link Input + Fetch Action
                           Row(
                             children: [
                               Expanded(
@@ -1029,8 +1611,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                                   controller: _driveUrlCtrl,
                                   style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
                                   decoration: InputDecoration(
-                                    labelText: 'Google Drive Folder Link',
-                                    labelStyle: GoogleFonts.inter(color: Colors.white70),
+                                    labelText: 'Google Drive Link (ZIP archive, PDF, or folder)',
+                                    labelStyle: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
                                     prefixIcon: const Icon(Icons.link, color: Colors.amber),
                                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                     filled: true,
@@ -1039,8 +1621,26 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                                 ),
                               ),
                               const SizedBox(width: 8),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.amber,
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                icon: _isFetchingDrive
+                                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                                    : const Icon(Icons.cloud_download_outlined, size: 18),
+                                label: Text(
+                                  _isFetchingDrive ? 'Fetching...' : 'Fetch',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                onPressed: _isFetchingDrive ? null : _fetchCertificatesFromDrive,
+                              ),
+                              const SizedBox(width: 6),
                               IconButton(
                                 icon: const Icon(Icons.open_in_browser, color: Colors.white70),
+                                tooltip: 'Open in Browser',
                                 onPressed: () async {
                                   final url = _driveUrlCtrl.text.trim();
                                   if (url.isNotEmpty && await canLaunchUrl(Uri.parse(url))) {
@@ -1051,12 +1651,14 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                             ],
                           ),
                           const SizedBox(height: 14),
+
+                          // Direct File / ZIP Selection
                           InkWell(
                             onTap: _isExtracting ? null : _pickCertificateFiles,
                             borderRadius: BorderRadius.circular(14),
                             child: Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.all(20),
+                              padding: const EdgeInsets.all(18),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.03),
                                 borderRadius: BorderRadius.circular(14),
@@ -1067,62 +1669,134 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                                   if (_isExtracting)
                                     const CircularProgressIndicator(color: accentGreen)
                                   else
-                                    const Icon(Icons.cloud_upload_outlined, size: 36, color: Colors.amber),
+                                    const Icon(Icons.cloud_upload_outlined, size: 34, color: Colors.amber),
                                   const SizedBox(height: 8),
                                   Text(
-                                    _isExtracting ? 'Extracting Archive...' : 'Select PDFs, Images, or a .ZIP Archive',
+                                    _isExtracting ? 'Extracting Archive...' : 'Or Select PDFs, Images, or a .ZIP Archive',
                                     style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text('Supports offline ZIP extraction & instant name matching', style: GoogleFonts.inter(color: Colors.white54, fontSize: 11)),
+                                  Text(
+                                    _publishWithoutAttendance
+                                        ? 'Loads certificates and matches student names with all m-Lynq logins'
+                                        : 'Loads certificates and matches with event attendees',
+                                    style: GoogleFonts.inter(color: Colors.white54, fontSize: 11),
+                                  ),
                                 ],
                               ),
                             ),
                           ),
+
+                          // Files and Match Results Section
                           if (_manualFiles.isNotEmpty) ...[
                             const SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('📁 ${_manualFiles.length} files loaded', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
-                                Text(
-                                  'Matched: ${matches.where((m) => m.matchedFile != null).length} / ${_attendees.length}',
-                                  style: GoogleFonts.inter(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                            if (_publishWithoutAttendance) ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('📁 ${_manualFiles.length} files loaded', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                                  Text(
+                                    'Matched with m-Lynq: ${fileMatches.where((m) => m.matchedUser != null).length} / ${_manualFiles.length}',
+                                    style: GoogleFonts.inter(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              // Preview list for file -> m-Lynq user matching
+                              Container(
+                                constraints: const BoxConstraints(maxHeight: 280),
+                                decoration: BoxDecoration(
+                                  color: Colors.black26,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            // Mapping preview list
-                            Container(
-                              constraints: const BoxConstraints(maxHeight: 250),
-                              decoration: BoxDecoration(
-                                color: Colors.black26,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.white12),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: fileMatches.length,
+                                  separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                                  itemBuilder: (ctx, i) {
+                                    final m = fileMatches[i];
+                                    final isIssued = m.matchedUser != null && _alreadyIssuedIds.contains(m.matchedUser!['user_id']);
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(
+                                        m.file.name,
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                                      ),
+                                      subtitle: Text(
+                                        m.matchedUser != null
+                                            ? '👤 ${m.matchedUser!['name']} (${m.matchedUser!['email']})'
+                                            : '⚠️ No m-Lynq user matched. Tap edit to assign manually.',
+                                        style: TextStyle(
+                                          color: m.matchedUser != null ? Colors.white70 : Colors.amberAccent,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (isIssued)
+                                            const Text('Issued', style: TextStyle(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 11))
+                                          else if (m.matchedUser != null)
+                                            Text('Matched (${m.matchType})', style: const TextStyle(color: accentBlue, fontSize: 11))
+                                          else
+                                            const Text('Unmatched', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
+                                          const SizedBox(width: 4),
+                                          IconButton(
+                                            icon: const Icon(Icons.edit_note, size: 20, color: Colors.white60),
+                                            tooltip: 'Assign m-Lynq User',
+                                            onPressed: () => _showUserSelectDialog(m.file.name),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
-                              child: ListView.separated(
-                                shrinkWrap: true,
-                                itemCount: matches.length,
-                                separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
-                                itemBuilder: (ctx, i) {
-                                  final m = matches[i];
-                                  final isIssued = _alreadyIssuedIds.contains(m.attendee['user_id']);
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(m.attendee['name'] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
-                                    subtitle: Text(
-                                      m.matchedFile != null ? m.matchedFile!.name : 'No file matched',
-                                      style: TextStyle(color: m.matchedFile != null ? Colors.white60 : Colors.redAccent, fontSize: 11),
-                                    ),
-                                    trailing: isIssued
-                                        ? const Text('Issued', style: TextStyle(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 11))
-                                        : m.matchedFile != null
-                                            ? Text('Matched (${m.matchType})', style: const TextStyle(color: accentBlue, fontSize: 11))
-                                            : const Text('Unmatched', style: TextStyle(color: Colors.amber, fontSize: 11)),
-                                  );
-                                },
+                            ] else ...[
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('📁 ${_manualFiles.length} files loaded', style: GoogleFonts.inter(color: Colors.white70, fontSize: 12)),
+                                  Text(
+                                    'Matched: ${matches.where((m) => m.matchedFile != null).length} / ${_attendees.length}',
+                                    style: GoogleFonts.inter(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ],
                               ),
-                            ),
+                              const SizedBox(height: 10),
+                              // Mapping preview list for attendee -> file matching
+                              Container(
+                                constraints: const BoxConstraints(maxHeight: 250),
+                                decoration: BoxDecoration(
+                                  color: Colors.black26,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  itemCount: matches.length,
+                                  separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                                  itemBuilder: (ctx, i) {
+                                    final m = matches[i];
+                                    final isIssued = _alreadyIssuedIds.contains(m.attendee['user_id']);
+                                    return ListTile(
+                                      dense: true,
+                                      title: Text(m.attendee['name'] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                                      subtitle: Text(
+                                        m.matchedFile != null ? m.matchedFile!.name : 'No file matched',
+                                        style: TextStyle(color: m.matchedFile != null ? Colors.white60 : Colors.redAccent, fontSize: 11),
+                                      ),
+                                      trailing: isIssued
+                                          ? const Text('Issued', style: TextStyle(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 11))
+                                          : m.matchedFile != null
+                                              ? Text('Matched (${m.matchType})', style: const TextStyle(color: accentBlue, fontSize: 11))
+                                              : const Text('Unmatched', style: TextStyle(color: Colors.amber, fontSize: 11)),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ],
                         ],
                       ),
@@ -1146,7 +1820,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
-                              value: _attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0),
+                              value: _publishWithoutAttendance
+                                  ? (_manualFiles.isEmpty ? 0 : (_processedCount / _manualFiles.length).clamp(0.0, 1.0))
+                                  : (_attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0)),
                               color: accentGreen,
                               backgroundColor: Colors.white12,
                               minHeight: 8,
@@ -1176,7 +1852,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
                   const SizedBox(height: 24),
 
-                  // Big Action Button (Unblocked from _isCompleted)
+                  // Big Action Button
                   if (_selectedTab == 0)
                     SizedBox(
                       width: double.infinity,
@@ -1193,6 +1869,24 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         ),
                         onPressed: (pendingCount == 0 || _activeTemplateUrl == null || _isProcessing) ? null : _generateAllCertificates,
+                      ),
+                    )
+                  else if (_publishWithoutAttendance)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.play_arrow, size: 22),
+                        label: Text(
+                          'Publish $pendingFileMatchedCount Matched Certificates to m-Lynq Users',
+                          style: GoogleFonts.spaceGrotesk(fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: (pendingFileMatchedCount > 0 && !_isProcessing) ? accentGreen : Colors.white12,
+                          foregroundColor: (pendingFileMatchedCount > 0 && !_isProcessing) ? Colors.black : Colors.white38,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        onPressed: (pendingFileMatchedCount == 0 || _isProcessing) ? null : _publishCertificatesWithoutAttendance,
                       ),
                     )
                   else
