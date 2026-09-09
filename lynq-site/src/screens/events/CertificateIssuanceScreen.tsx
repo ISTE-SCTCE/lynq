@@ -1527,7 +1527,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <Sparkles size={20} style={{ color: publishWithoutAttendance ? 'rgb(22, 192, 122)' : 'var(--text-secondary)' }} />
                   <div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'white' }}>Publish without Attendance List</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Publish without Attendance List</div>
                     <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                       {publishWithoutAttendance
                         ? `Active: Matching files against all ${allMlynqUsers.length} registered m-Lynq students`
@@ -1544,7 +1544,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
                   />
                   <span style={{
                     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                    background: publishWithoutAttendance ? 'rgb(22, 192, 122)' : 'rgba(255,255,255,0.2)',
+                    background: publishWithoutAttendance ? 'rgb(22, 192, 122)' : 'rgba(150,150,150,0.3)',
                     borderRadius: '24px', transition: '0.2s',
                   }}>
                     <span style={{
@@ -1615,12 +1615,12 @@ export const CertificateIssuanceScreen: React.FC = () => {
                   {isExtractingZip ? (
                     <>
                       <Loader size={24} className="spinner" style={{ color: '#3b82f6' }} />
-                      <span style={{ fontSize: '13px', color: 'white' }}>Extracting and analyzing certificate files...</span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-primary)' }}>Extracting and analyzing certificate files...</span>
                     </>
                   ) : (
                     <>
                       <Upload size={24} style={{ color: '#f59e0b' }} />
-                      <span style={{ fontSize: '14px', fontWeight: 600, color: 'white' }}>Click to select files or drag & drop</span>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>Click to select files or drag & drop</span>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                         {publishWithoutAttendance
                           ? 'Loads certificate files and matches student names with all m-Lynq user accounts'
@@ -1635,7 +1635,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
               {uploadedFiles.length > 0 && (
                 <div style={{ padding: '14px', borderRadius: '12px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-light)', marginBottom: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'white' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)' }}>
                       📁 {uploadedFiles.length} Certificate Files Loaded
                     </span>
                     <span style={{ fontSize: '12px', color: 'rgb(22, 192, 122)', fontWeight: 600 }}>
@@ -1653,7 +1653,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
               {/* Mapping Table */}
               {uploadedFiles.length > 0 && (
                 <div style={{ marginTop: '16px' }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'white', marginBottom: '10px' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>
                     {publishWithoutAttendance ? 'm-Lynq User Matching Preview' : 'Attendee Name Mapping Preview'}
                   </h4>
                   <div style={{ maxHeight: '320px', overflowY: 'auto', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
@@ -1672,7 +1672,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
                             const isIssued = m.matchedUser ? alreadyIssuedIds.has(m.matchedUser.user_id) : false;
                             return (
                               <tr key={m.file.name} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'white' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     <FileText size={12} style={{ color: '#3b82f6' }} /> {m.file.name}
                                   </span>
@@ -1709,11 +1709,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
                                         [m.file.name]: val,
                                       }));
                                     }}
-                                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-light)', borderRadius: '6px', color: 'white', padding: '4px 8px', fontSize: '11px', maxWidth: '180px' }}
+                                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border-light)', borderRadius: '6px', color: 'var(--text-primary)', padding: '4px 8px', fontSize: '11px', maxWidth: '180px' }}
                                   >
                                     <option value="">Select m-Lynq User...</option>
                                     {allMlynqUsers.map(u => (
-                                      <option key={u.user_id} value={u.user_id} style={{ background: '#1e1e1e', color: 'white' }}>
+                                      <option key={u.user_id} value={u.user_id}>
                                         {u.name} ({u.email || u.membership_id || 'Student'})
                                       </option>
                                     ))}
@@ -1727,7 +1727,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
                             const isIssued = alreadyIssuedIds.has(m.attendee.user_id);
                             return (
                               <tr key={m.attendee.user_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'white' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
                                   {m.attendee.name}
                                 </td>
                                 <td style={{ padding: '8px 12px', color: m.matchedFile ? 'var(--text-primary)' : 'var(--text-muted)' }}>
