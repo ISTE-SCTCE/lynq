@@ -97,7 +97,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       targetDate: Date;
     }[] = [];
 
-    // Preceding days
+    // Preceding days from previous month
     for (let i = firstDayIndex - 1; i >= 0; i--) {
       const dayNum = daysInPrevMonth - i;
       const d = new Date(year, month - 1, dayNum);
@@ -128,7 +128,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       });
     }
 
-    // Trailing days
+    // Trailing days to fill the final week
     const totalCells = cells.length <= 35 ? 35 : 42;
     const remainingDays = totalCells - cells.length;
     for (let i = 1; i <= remainingDays; i++) {
@@ -169,6 +169,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
 
   return (
     <div className="full-calendar-container glass-card">
+      {/* Header */}
       <div className="full-calendar-header">
         <div className="calendar-title-group">
           <div className="calendar-selectors">
@@ -213,7 +214,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             className="calendar-today-btn"
             title="Jump to today"
           >
-            <RotateCcw size={13} style={{ marginRight: '4px' }} />
+            <RotateCcw size={12} style={{ marginRight: '4px' }} />
             Today
           </button>
 
@@ -224,7 +225,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             title="Previous month"
             aria-label="Previous month"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={16} />
           </button>
 
           <button
@@ -234,11 +235,12 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             title="Next month"
             aria-label="Next month"
           >
-            <ChevronRight size={18} />
+            <ChevronRight size={16} />
           </button>
         </div>
       </div>
 
+      {/* Weekday labels */}
       <div className="calendar-weekdays-grid">
         {WEEKDAYS.map((wd) => (
           <div key={wd} className="calendar-weekday-cell">
@@ -247,13 +249,14 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
         ))}
       </div>
 
+      {/* Days grid */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={`${year}-${month}`}
-          initial={{ opacity: 0, x: slideDirection * 20 }}
+          initial={{ opacity: 0, x: slideDirection * 15 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -slideDirection * 20 }}
-          transition={{ duration: 0.18, ease: 'easeInOut' }}
+          exit={{ opacity: 0, x: -slideDirection * 15 }}
+          transition={{ duration: 0.16, ease: 'easeInOut' }}
           className="calendar-days-grid"
         >
           {calendarGrid.map((cell) => {
@@ -292,9 +295,10 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       <style>{`
         .full-calendar-container {
           width: 100%;
-          border-radius: 20px;
-          padding: 16px 18px 20px;
-          margin-bottom: 24px;
+          max-width: 440px;
+          margin: 0 auto 20px auto;
+          border-radius: 18px;
+          padding: 14px 16px 16px;
           box-shadow: var(--shadow-premium);
           border: 1px solid var(--border-light);
           background: var(--bg-glass);
@@ -305,32 +309,30 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           display: flex;
           align-items: center;
           justify-content: space-between;
-          margin-bottom: 16px;
-          gap: 12px;
-          flex-wrap: wrap;
+          margin-bottom: 12px;
+          gap: 8px;
         }
 
         .calendar-title-group {
           display: flex;
           align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
+          gap: 8px;
         }
 
         .calendar-selectors {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 6px;
         }
 
         .calendar-select {
           background: rgba(255, 255, 255, 0.07);
           color: var(--text-primary);
           border: 1px solid var(--border-light);
-          border-radius: 12px;
-          padding: 6px 10px;
+          border-radius: 10px;
+          padding: 4px 8px;
           font-family: var(--font-space-grotesk);
-          font-size: 16px;
+          font-size: 14px;
           font-weight: 700;
           cursor: pointer;
           outline: none;
@@ -346,7 +348,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           background: var(--bg-secondary, #1e1e1e);
           color: var(--text-primary, #fff);
           font-family: var(--font-inter);
-          font-size: 14px;
+          font-size: 13px;
         }
 
         .month-event-pill {
@@ -355,15 +357,15 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           color: rgb(22, 192, 122);
           background: rgba(22, 192, 122, 0.12);
           border: 1px solid rgba(22, 192, 122, 0.25);
-          padding: 4px 10px;
+          padding: 3px 8px;
           border-radius: 100px;
-          letter-spacing: 0.3px;
+          white-space: nowrap;
         }
 
         .calendar-controls {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 4px;
         }
 
         .calendar-today-btn {
@@ -372,9 +374,9 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           background: rgba(255, 255, 255, 0.06);
           color: var(--text-secondary);
           border: 1px solid var(--border-light);
-          padding: 6px 12px;
-          border-radius: 10px;
-          font-size: 12px;
+          padding: 4px 8px;
+          border-radius: 8px;
+          font-size: 11px;
           font-weight: 600;
           cursor: pointer;
           transition: all 0.2s ease;
@@ -390,9 +392,9 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 34px;
-          height: 34px;
-          border-radius: 10px;
+          width: 30px;
+          height: 30px;
+          border-radius: 8px;
           background: rgba(255, 255, 255, 0.06);
           border: 1px solid var(--border-light);
           color: var(--text-primary);
@@ -409,39 +411,41 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
         .calendar-weekdays-grid {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          gap: 6px;
-          margin-bottom: 8px;
+          gap: 4px;
+          margin-bottom: 6px;
           text-align: center;
         }
 
         .calendar-weekday-cell {
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 700;
           color: var(--text-muted);
           text-transform: uppercase;
-          letter-spacing: 0.5px;
-          padding: 4px 0;
+          letter-spacing: 0.3px;
+          padding: 2px 0;
         }
 
         .calendar-days-grid {
           display: grid;
           grid-template-columns: repeat(7, 1fr);
-          gap: 6px;
+          gap: 4px;
+          justify-items: center;
         }
 
         .calendar-day-cell {
           position: relative;
-          aspect-ratio: 1;
+          width: 38px;
+          height: 38px;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          border-radius: 14px;
+          border-radius: 10px;
           border: 1px solid transparent;
           background: transparent;
           cursor: pointer;
-          transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-          padding: 4px;
+          transition: all 0.15s ease;
+          padding: 0;
           user-select: none;
         }
 
@@ -451,11 +455,11 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
 
         .calendar-day-cell.out-month {
           color: var(--text-muted);
-          opacity: 0.35;
+          opacity: 0.3;
         }
 
         .calendar-day-cell:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: rgba(255, 255, 255, 0.09);
           border-color: rgba(var(--secondary-neon), 0.25);
           transform: translateY(-1px);
         }
@@ -474,8 +478,8 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           background: linear-gradient(135deg, rgba(22, 192, 122, 0.95), rgba(16, 150, 95, 0.9)) !important;
           color: #ffffff !important;
           border-color: rgba(22, 192, 122, 0.8) !important;
-          box-shadow: 0 4px 14px rgba(22, 192, 122, 0.45);
-          transform: scale(1.04);
+          box-shadow: 0 4px 12px rgba(22, 192, 122, 0.4);
+          transform: scale(1.05);
         }
 
         .calendar-day-cell.selected .calendar-day-text {
@@ -488,7 +492,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
         }
 
         .calendar-day-text {
-          font-size: 14px;
+          font-size: 13px;
           font-weight: 600;
           line-height: 1;
         }
@@ -498,34 +502,29 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
           align-items: center;
           justify-content: center;
           gap: 2px;
-          margin-top: 4px;
-          height: 4px;
+          margin-top: 3px;
+          height: 3px;
         }
 
         .event-dot {
-          width: 4px;
-          height: 4px;
+          width: 3.5px;
+          height: 3.5px;
           border-radius: 50%;
           background: rgb(22, 192, 122);
-          box-shadow: 0 0 4px rgba(22, 192, 122, 0.6);
+          box-shadow: 0 0 3px rgba(22, 192, 122, 0.6);
         }
 
-        @media (max-width: 640px) {
+        @media (max-width: 480px) {
           .full-calendar-container {
-            padding: 12px;
-          }
-          .calendar-select {
-            font-size: 14px;
-            padding: 4px 8px;
+            max-width: 100%;
+            padding: 10px 12px;
           }
           .calendar-day-cell {
-            border-radius: 10px;
+            width: 34px;
+            height: 34px;
           }
           .calendar-day-text {
             font-size: 12px;
-          }
-          .calendar-weekday-cell {
-            font-size: 10px;
           }
         }
       `}</style>

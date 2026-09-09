@@ -267,7 +267,9 @@ export const EventListScreen: React.FC = () => {
 
       <style>{`
         .event-list-container {
-          padding: 16px 20px;
+          max-width: 640px;
+          margin: 0 auto;
+          padding: 16px 20px 80px 20px;
         }
 
         .page-header {
