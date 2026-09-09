@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, RefreshCw, Upload, Check, AlertTriangle, Play, Sparkles, 
@@ -100,6 +100,10 @@ export const CertificateIssuanceScreen: React.FC = () => {
   // Publish Mode: 'automated' (Google Slides) vs 'manual' (Google Drive / Files)
   const [publishMode, setPublishMode] = useState<'automated' | 'manual'>('automated');
   const [certificateName, setCertificateName] = useState('Certificate of Participation');
+  const certificateNameRef = useRef(certificateName);
+  useEffect(() => {
+    certificateNameRef.current = certificateName;
+  }, [certificateName]);
 
   // Automated Mode State
   const [slidesUrl, setSlidesUrl] = useState('');
@@ -709,7 +713,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
     }
   };
 
-  const handlePublishManualAttendanceCertificates = async () => {
+  const handlePublishManualAttendanceCertificates = () => {
     const matched = calculatedManualAttendanceRecords.filter(r => r.matchedUser !== null);
     if (matched.length === 0) {
       alert('No matched attendees found in the uploaded list.');
@@ -722,17 +726,27 @@ export const CertificateIssuanceScreen: React.FC = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Generate automated certificates from presentation template for ${toPublish.length} matched attendee(s) and send them directly to their m-Lynq accounts?\n\nAttendance will also be marked automatically.`
-    );
-    if (!confirmed) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Publish Automated Certificates',
+      description: `Ready to issue and send certificates from presentation template directly to ${toPublish.length} matched attendee(s)? Each student will receive their certificate in their m-Lynq account immediately. Attendance will also be marked automatically.`,
+      recipients: toPublish.map(r => ({ student: r.matchedUser!.name || r.rawName, file: 'Presentation Template' })),
+      onConfirm: () => {
+        setConfirmModal(null);
+        executePublishManualAttendanceCertificates(toPublish);
+      }
+    });
+  };
 
+  const executePublishManualAttendanceCertificates = async (toPublish: typeof calculatedManualAttendanceRecords) => {
     setIsProcessing(true);
     setProcessedCount(0);
     setLastSuccessCount(null);
 
     let successCount = 0;
     const total = toPublish.length;
+    const successItems: PublishResultItem[] = [];
+    const failedItems: PublishFailItem[] = [];
 
     try {
       for (let i = 0; i < toPublish.length; i++) {
@@ -741,15 +755,16 @@ export const CertificateIssuanceScreen: React.FC = () => {
         const uid = item.matchedUser!.user_id;
         setProgressMessage(`Publishing for ${sname} (${i + 1}/${total})...`);
 
-        const certCustomName = certificateName.trim() || 'Certificate of Participation';
+        const certCustomName = (certificateNameRef.current || certificateName).trim() || 'Certificate of Participation';
+        const fileUrl = slidesUrl.trim() || event?.template_url || '';
         const { error } = await supabase.from('certificates').upsert({
           user_id: uid,
           event_id: parseInt(id!),
           student_name: sname,
           title: `${certCustomName} — ${event?.title}`,
           description: `Awarded ${certCustomName} for ${event?.title} on ${event?.date || ''}`,
-          file_url: slidesUrl.trim() || event?.template_url || '',
-          certificate_url: slidesUrl.trim() || event?.template_url || '',
+          file_url: fileUrl,
+          certificate_url: fileUrl,
           issued_by: currentUser?.id,
           issued_at: new Date().toISOString(),
         }, { onConflict: 'user_id,event_id' });
@@ -764,6 +779,18 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
           successCount++;
           setProcessedCount(i + 1);
+          successItems.push({
+            student: sname,
+            file: 'Presentation Template',
+            url: fileUrl,
+          });
+        } else {
+          console.error(`Certificate DB record creation failed for ${sname}:`, error);
+          failedItems.push({
+            student: sname,
+            file: 'Presentation Template',
+            error: `Database save failed: ${error.message || 'Database error'}`,
+          });
         }
       }
     } catch (err: any) {
@@ -774,7 +801,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setIsProcessing(false);
     setProgressMessage('');
     setLastSuccessCount(successCount);
-    alert(`Successfully generated and published ${successCount} certificate(s)!`);
+    setPublishResultModal({
+      isOpen: true,
+      successItems,
+      failedItems,
+    });
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -886,7 +917,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
   };
 
   // Automated Google Slides Issuance
-  const handlePublishAutomatedCertificates = async () => {
+  const handlePublishAutomatedCertificates = () => {
     if (attendees.length === 0) {
       alert('No attendees found for this event.');
       return;
@@ -898,17 +929,27 @@ export const CertificateIssuanceScreen: React.FC = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `This will publish certificates for ${eligible.length} attendee(s) of "${event?.title}". Proceed?`
-    );
-    if (!confirmed) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Publish Automated Certificates',
+      description: `Ready to generate and publish certificates from presentation template for ${eligible.length} attendee(s) of "${event?.title}"? Each student will receive their certificate in their m-Lynq account immediately.`,
+      recipients: eligible.map(a => ({ student: a.name, file: 'Google Slides Template' })),
+      onConfirm: () => {
+        setConfirmModal(null);
+        executePublishAutomatedCertificates(eligible);
+      }
+    });
+  };
 
+  const executePublishAutomatedCertificates = async (eligible: typeof attendees) => {
     setIsProcessing(true);
     setProcessedCount(0);
     setLastSuccessCount(null);
 
     let successCount = 0;
     const total = eligible.length;
+    const successItems: PublishResultItem[] = [];
+    const failedItems: PublishFailItem[] = [];
 
     try {
       if (slidesUrl.trim() || chairName.trim() || coordName.trim()) {
@@ -934,20 +975,28 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
       if (!funcErr && funcData && typeof funcData.generated === 'number') {
         successCount = funcData.generated;
+        eligible.forEach(a => {
+          successItems.push({
+            student: a.name,
+            file: 'Generated Slide PDF',
+            url: slidesUrl.trim() || event?.template_url || '',
+          });
+        });
       } else {
         for (let i = 0; i < eligible.length; i++) {
           const attendee = eligible[i];
           setProgressMessage(`Publishing for ${attendee.name} (${i + 1}/${total})...`);
 
-          const certCustomName = certificateName.trim() || 'Certificate of Participation';
+          const certCustomName = (certificateNameRef.current || certificateName).trim() || 'Certificate of Participation';
+          const fileUrl = slidesUrl.trim() || event?.template_url || '';
           const { error } = await supabase.from('certificates').upsert({
             user_id: attendee.user_id,
             event_id: parseInt(id!),
             student_name: attendee.name,
             title: `${certCustomName} — ${event?.title}`,
             description: `Awarded ${certCustomName} for ${event?.title} on ${event?.date || ''}`,
-            file_url: slidesUrl.trim() || event?.template_url || '',
-            certificate_url: slidesUrl.trim() || event?.template_url || '',
+            file_url: fileUrl,
+            certificate_url: fileUrl,
             issued_by: currentUser?.id,
             issued_at: new Date().toISOString()
           }, { onConflict: 'user_id,event_id' });
@@ -955,10 +1004,22 @@ export const CertificateIssuanceScreen: React.FC = () => {
           if (!error) {
             successCount++;
             setProcessedCount(i + 1);
+            successItems.push({
+              student: attendee.name,
+              file: 'Google Slides Template',
+              url: fileUrl,
+            });
+          } else {
+            console.error(`Certificate DB record creation failed for ${attendee.name}:`, error);
+            failedItems.push({
+              student: attendee.name,
+              file: 'Google Slides Template',
+              error: `Database save failed: ${error.message || 'Database error'}`,
+            });
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Error issuing certificates:`, err);
     }
 
@@ -966,7 +1027,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setIsProcessing(false);
     setProgressMessage('');
     setLastSuccessCount(successCount);
-    alert(`Successfully published ${successCount} certificate(s).`);
+    setPublishResultModal({
+      isOpen: true,
+      successItems,
+      failedItems,
+    });
   };
 
   // Manual Distribution Issuance Pipeline
@@ -1043,8 +1108,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
         const fileUrl = pubData?.publicUrl || '';
 
-        // Upsert row into certificates table
-        const certCustomName = certificateName.trim() || 'Certificate of Participation';
+        const certCustomName = (certificateNameRef.current || certificateName).trim() || 'Certificate of Participation';
         const { error: certError } = await supabase.from('certificates').upsert({
           user_id: attendee.user_id,
           event_id: parseInt(id!),
@@ -1163,7 +1227,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
         const fileUrl = pubData?.publicUrl || '';
 
-        const certCustomName = certificateName.trim() || 'Certificate of Participation';
+        const certCustomName = (certificateNameRef.current || certificateName).trim() || 'Certificate of Participation';
         const { error: certError } = await supabase.from('certificates').upsert({
           user_id: matchedUser.user_id,
           event_id: parseInt(id!),
@@ -2210,6 +2274,71 @@ export const CertificateIssuanceScreen: React.FC = () => {
             <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {confirmModal.description}
             </p>
+
+            {/* Editable Certificate Name with Quick Chips */}
+            <div style={{
+              padding: '12px 14px', borderRadius: '12px',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid var(--border-light)',
+              display: 'flex', flexDirection: 'column', gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Award size={15} /> Certificate Name / Type
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Shown in m-Lynq</span>
+              </div>
+              <input
+                type="text"
+                value={certificateName}
+                onChange={(e) => setCertificateName(e.target.value)}
+                placeholder="e.g. Certificate of Participation, Winner, 1st Prize..."
+                style={{
+                  width: '100%',
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '8px',
+                  color: 'var(--text-primary)',
+                  padding: '9px 12px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  outline: 'none'
+                }}
+              />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px' }}>
+                {[
+                  'Certificate of Participation',
+                  'Certificate of Appreciation',
+                  'Certificate of Excellence',
+                  'Winner',
+                  '1st Prize',
+                  'Runner Up',
+                  'Volunteer Certificate'
+                ].map((preset) => {
+                  const isSelected = certificateName.trim() === preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setCertificateName(preset)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '6px',
+                        border: isSelected ? '1px solid rgb(22, 192, 122)' : '1px solid var(--border-light)',
+                        background: isSelected ? 'rgba(22, 192, 122, 0.2)' : 'rgba(255,255,255,0.03)',
+                        color: isSelected ? 'rgb(22, 192, 122)' : 'var(--text-secondary)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      {preset}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <div style={{ maxHeight: '180px', overflowY: 'auto', borderRadius: '10px', border: '1px solid var(--border-light)', padding: '8px 12px', background: 'rgba(255,255,255,0.02)' }}>
               <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
