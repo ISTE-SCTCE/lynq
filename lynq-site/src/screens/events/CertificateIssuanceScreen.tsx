@@ -78,7 +78,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
   // Manual Mode State
-  const [publishWithoutAttendance, setPublishWithoutAttendance] = useState(false);
+  const [publishWithoutAttendance, setPublishWithoutAttendance] = useState(true);
   const [allMlynqUsers, setAllMlynqUsers] = useState<Attendee[]>([]);
   const [fileManualOverrides, setFileManualOverrides] = useState<Record<string, string>>({}); // fileName -> userId
   const [driveFolderUrl, setDriveFolderUrl] = useState('');
@@ -160,6 +160,9 @@ export const CertificateIssuanceScreen: React.FC = () => {
         });
       }
       setAttendees(uniqueAttendees);
+      if (uniqueAttendees.length === 0) {
+        setPublishWithoutAttendance(true);
+      }
 
       // 4. Fetch already issued certificates
       const { data: issuedRows, error: cErr } = await supabase

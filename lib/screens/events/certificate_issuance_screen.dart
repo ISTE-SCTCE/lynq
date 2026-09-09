@@ -110,7 +110,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   final Map<String, String> _manualOverrides = {}; // userId -> fileName
 
   // Non-Attendance List Mode State
-  bool _publishWithoutAttendance = false;
+  bool _publishWithoutAttendance = true;
   List<Map<String, dynamic>> _allMlynqUsers = [];
   bool _isLoadingMlynqUsers = false;
   bool _isFetchingDrive = false;
@@ -268,6 +268,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         }).toList();
       } else {
         _attendees = [];
+      }
+      if (_attendees.isEmpty) {
+        _publishWithoutAttendance = true;
       }
 
       // 4. Fetch Already Issued Certificates (isolated so profile or cert issues do not block each other)
