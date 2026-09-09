@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:archive/archive.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:excel/excel.dart' as xl;
 import '../../models/app_models.dart';
 import '../../shared/utils/dynamic_template_parser.dart';
 import '../../shared/utils/dynamic_certificate_pdf_engine.dart';
@@ -44,6 +45,32 @@ class CertFileMatch {
     this.matchType = 'none',
     this.score = 0,
   });
+}
+
+class ManualAttendanceRecord {
+  final String rawName;
+  final String rawEmail;
+  final String rawMembershipId;
+  final String rawPhone;
+  final String rawRollNo;
+  final Map<String, String> rawData;
+  Map<String, dynamic>? matchedUser;
+  String matchType; // 'exact_email', 'exact_id', 'exact_name', 'fuzzy_name', 'manual', 'none'
+  int score;
+
+  ManualAttendanceRecord({
+    required this.rawName,
+    this.rawEmail = '',
+    this.rawMembershipId = '',
+    this.rawPhone = '',
+    this.rawRollNo = '',
+    required this.rawData,
+    this.matchedUser,
+    this.matchType = 'none',
+    this.score = 0,
+  });
+
+  String get key => '${rawName.trim().toLowerCase()}_${rawEmail.trim().toLowerCase()}_${rawMembershipId.trim().toLowerCase()}';
 }
 
 class CertificateIssuanceScreen extends StatefulWidget {
@@ -89,9 +116,18 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
   bool _isFetchingDrive = false;
   final Map<String, String> _fileToUserManualOverrides = {}; // fileName -> userId
 
+  // Automated Mode: Manual Attendance List State
+  int _automatedAttendanceSource = 0; // 0 = Registered / QR Attendees, 1 = Uploaded Manual Attendance List
+  String? _uploadedAttendanceFileName;
+  List<ManualAttendanceRecord> _manualAttendanceRecords = [];
+  final Map<String, String> _manualAttendanceUserOverrides = {}; // recordKey -> userId
+  String _attendanceListFilter = 'all'; // 'all', 'matched', 'unmatched', 'pending'
+  bool _isParsingAttendanceFile = false;
+
   final _slidesUrlCtrl = TextEditingController();
   final _chairNameCtrl = TextEditingController();
   final _coordinatorNameCtrl = TextEditingController();
+  final _certificateNameCtrl = TextEditingController(text: 'Certificate of Participation');
 
   static const Color accentGreen = Color(0xFF16C07A);
   static const Color accentBlue = Color(0xFF3B82F6);
@@ -109,6 +145,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     _chairNameCtrl.dispose();
     _coordinatorNameCtrl.dispose();
     _driveUrlCtrl.dispose();
+    _certificateNameCtrl.dispose();
     super.dispose();
   }
 
@@ -237,13 +274,27 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       try {
         final certsRes = await _supabase
             .from('certificates')
-            .select('user_id')
+            .select('user_id, title')
             .eq('event_id', widget.event.id);
         final List certRows = certsRes as List? ?? [];
         _alreadyIssuedIds = certRows
             .map((r) => r['user_id']?.toString())
             .whereType<String>()
             .toSet();
+        if (certRows.isNotEmpty) {
+          for (final r in certRows) {
+            final t = r['title'] as String?;
+            if (t != null && t.trim().isNotEmpty) {
+              final customPart = t.contains(' — ')
+                  ? t.split(' — ')[0]
+                  : (t.contains(' - ') ? t.split(' - ')[0] : t);
+              if (customPart.trim().isNotEmpty) {
+                _certificateNameCtrl.text = customPart.trim();
+                break;
+              }
+            }
+          }
+        }
       } catch (e) {
         debugPrint('Certificates fetch error: $e');
         _alreadyIssuedIds = {};
@@ -486,6 +537,616 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     );
   }
 
+  // ── Manual Attendance List (Automated Side) Methods ──
+
+  String _cleanHeader(String h) {
+    return h.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
+
+  String _extractColumnValue(Map<String, String> row, List<String> candidateKeys) {
+    for (final k in candidateKeys) {
+      final normalizedK = _cleanHeader(k);
+      for (final entry in row.entries) {
+        if (_cleanHeader(entry.key) == normalizedK && entry.value.trim().isNotEmpty) {
+          return entry.value.trim();
+        }
+      }
+    }
+    for (final k in candidateKeys) {
+      final normalizedK = _cleanHeader(k);
+      for (final entry in row.entries) {
+        if (_cleanHeader(entry.key).contains(normalizedK) && entry.value.trim().isNotEmpty) {
+          return entry.value.trim();
+        }
+      }
+    }
+    return '';
+  }
+
+  List<Map<String, String>> _parseCsvData(List<int> bytes) {
+    String content;
+    try {
+      content = utf8.decode(bytes);
+    } catch (_) {
+      content = latin1.decode(bytes);
+    }
+
+    if (content.startsWith('\uFEFF')) {
+      content = content.substring(1);
+    }
+
+    final rawLines = content.split(RegExp(r'\r?\n'));
+    final List<List<String>> parsedLines = [];
+
+    for (final line in rawLines) {
+      if (line.trim().isEmpty) continue;
+      final tokens = <String>[];
+      final sb = StringBuffer();
+      bool inQuotes = false;
+      for (int i = 0; i < line.length; i++) {
+        final c = line[i];
+        if (c == '"') {
+          if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+            sb.write('"');
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (c == ',' && !inQuotes) {
+          tokens.add(sb.toString().trim());
+          sb.clear();
+        } else {
+          sb.write(c);
+        }
+      }
+      tokens.add(sb.toString().trim());
+      parsedLines.add(tokens);
+    }
+
+    if (parsedLines.isEmpty) return [];
+
+    final headers = parsedLines.first;
+    final List<Map<String, String>> rows = [];
+
+    for (int i = 1; i < parsedLines.length; i++) {
+      final rowTokens = parsedLines[i];
+      if (rowTokens.every((t) => t.isEmpty)) continue;
+      final Map<String, String> row = {};
+      for (int j = 0; j < headers.length; j++) {
+        final key = headers[j];
+        final val = j < rowTokens.length ? rowTokens[j] : '';
+        row[key] = val;
+      }
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  List<Map<String, String>> _parseExcelData(List<int> bytes) {
+    final excel = xl.Excel.decodeBytes(bytes);
+    final List<Map<String, String>> rows = [];
+
+    for (final table in excel.tables.keys) {
+      final sheet = excel.tables[table]!;
+      if (sheet.maxRows <= 1) continue;
+
+      final headerRow = sheet.rows.first;
+      final headers = headerRow.map((cell) => cell?.value?.toString().trim() ?? '').toList();
+
+      for (int i = 1; i < sheet.maxRows; i++) {
+        final rowCells = sheet.rows[i];
+        final Map<String, String> row = {};
+        bool hasContent = false;
+        for (int j = 0; j < headers.length; j++) {
+          final header = headers[j];
+          final val = j < rowCells.length ? (rowCells[j]?.value?.toString().trim() ?? '') : '';
+          if (val.isNotEmpty) hasContent = true;
+          row[header] = val;
+        }
+        if (hasContent) {
+          rows.add(row);
+        }
+      }
+      if (rows.isNotEmpty) break;
+    }
+    return rows;
+  }
+
+  void _recalculateManualAttendanceMatches() {
+    for (final record in _manualAttendanceRecords) {
+      // 0. Manual Override
+      if (_manualAttendanceUserOverrides.containsKey(record.key)) {
+        final overrideUserId = _manualAttendanceUserOverrides[record.key];
+        final matched = _allMlynqUsers.cast<Map<String, dynamic>?>().firstWhere(
+              (u) => u?['user_id'] == overrideUserId,
+              orElse: () => null,
+            );
+        record.matchedUser = matched;
+        record.matchType = 'manual';
+        record.score = 100;
+        continue;
+      }
+
+      final cleanRecordName = _normalizeText(record.rawName);
+      final recordTokens = cleanRecordName.split(' ').where((t) => t.length > 1).toList();
+      final cleanRecordEmail = record.rawEmail.trim().toLowerCase();
+      final cleanRecordId = _normalizeText(record.rawMembershipId);
+
+      Map<String, dynamic>? bestUser;
+      String bestType = 'none';
+      int bestScore = 0;
+
+      for (final user in _allMlynqUsers) {
+        final userEmail = (user['email'] as String? ?? '').trim().toLowerCase();
+        final userId = _normalizeText(user['membership_id'] as String? ?? '');
+        final cleanUserName = _normalizeText(user['name'] as String? ?? '');
+        final userTokens = cleanUserName.split(' ').where((t) => t.length > 1).toList();
+
+        // 1. Exact Email Match (Score 100)
+        if (cleanRecordEmail.isNotEmpty && userEmail.isNotEmpty && cleanRecordEmail == userEmail) {
+          bestUser = user;
+          bestType = 'exact_email';
+          bestScore = 100;
+          break;
+        }
+
+        // 2. Exact Membership ID Match (Score 100)
+        if (cleanRecordId.isNotEmpty && userId.isNotEmpty && cleanRecordId == userId) {
+          bestUser = user;
+          bestType = 'exact_id';
+          bestScore = 100;
+          break;
+        }
+
+        // 3. Exact Name Match (Score 95)
+        if (cleanRecordName.isNotEmpty && cleanRecordName == cleanUserName) {
+          if (bestScore < 95) {
+            bestUser = user;
+            bestType = 'exact_name';
+            bestScore = 95;
+          }
+          continue;
+        }
+
+        // 4. Token Overlap Match (Score 70-90)
+        if (userTokens.isNotEmpty && recordTokens.isNotEmpty) {
+          final matchedCount = recordTokens.where((rt) => userTokens.contains(rt)).length;
+          final ratio = matchedCount / userTokens.length;
+          if (ratio == 1.0 && bestScore < 90) {
+            bestUser = user;
+            bestType = 'fuzzy_name';
+            bestScore = 90;
+          } else if (ratio >= 0.6 && bestScore < 80) {
+            final calculated = (ratio * 80).round();
+            if (calculated > bestScore) {
+              bestUser = user;
+              bestType = 'fuzzy_name';
+              bestScore = calculated;
+            }
+          }
+        }
+
+        // 5. Contains match (Score 75)
+        if (cleanUserName.length >= 3 && cleanRecordName.contains(cleanUserName) && bestScore < 75) {
+          bestUser = user;
+          bestType = 'fuzzy_name';
+          bestScore = 75;
+        } else if (cleanRecordName.length >= 3 && cleanUserName.contains(cleanRecordName) && bestScore < 75) {
+          bestUser = user;
+          bestType = 'fuzzy_name';
+          bestScore = 75;
+        }
+      }
+
+      record.matchedUser = bestScore >= 60 ? bestUser : null;
+      record.matchType = bestScore >= 60 ? bestType : 'none';
+      record.score = bestScore;
+    }
+  }
+
+  Future<void> _pickAndParseAttendanceFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv', 'xlsx', 'xls', 'txt'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() {
+        _isParsingAttendanceFile = true;
+      });
+
+      final file = result.files.first;
+      final fileName = file.name;
+      final ext = (file.extension ?? '').toLowerCase();
+      List<int>? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Could not read file data or file is empty.');
+      }
+
+      List<Map<String, String>> rows = [];
+
+      if (ext == 'csv' || ext == 'txt') {
+        rows = _parseCsvData(bytes);
+      } else if (ext == 'xlsx' || ext == 'xls') {
+        rows = _parseExcelData(bytes);
+      }
+
+      if (rows.isEmpty) {
+        throw Exception('No data rows found in the uploaded file.');
+      }
+
+      final List<ManualAttendanceRecord> records = [];
+      for (final r in rows) {
+        final name = _extractColumnValue(r, ['fullname', 'studentname', 'name', 'participantname', 'attendee', 'membername', 'student']);
+        final email = _extractColumnValue(r, ['emailaddress', 'email', 'mail', 'email', 'studentemail']);
+        final memberId = _extractColumnValue(r, ['membershipid', 'memberid', 'isteid', 'istemembershipid', 'membership', 'id']);
+        final phone = _extractColumnValue(r, ['phonenumber', 'phone', 'mobile', 'contact', 'whatsapp']);
+        final rollNo = _extractColumnValue(r, ['rollnumber', 'rollno', 'regno', 'registernumber', 'regid', 'admissionno']);
+
+        if (name.isNotEmpty || email.isNotEmpty || memberId.isNotEmpty) {
+          records.add(ManualAttendanceRecord(
+            rawName: name,
+            rawEmail: email,
+            rawMembershipId: memberId,
+            rawPhone: phone,
+            rawRollNo: rollNo,
+            rawData: r,
+          ));
+        }
+      }
+
+      if (records.isEmpty) {
+        throw Exception('Could not extract any attendee records. Ensure column headers include Name or Email.');
+      }
+
+      if (_allMlynqUsers.isEmpty) {
+        await _loadAllMlynqProfiles(silent: true);
+      }
+
+      setState(() {
+        _manualAttendanceRecords = records;
+        _uploadedAttendanceFileName = fileName;
+        _manualAttendanceUserOverrides.clear();
+        _attendanceListFilter = 'all';
+        _recalculateManualAttendanceMatches();
+      });
+
+      final matchedCount = records.where((r) => r.matchedUser != null).length;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Loaded ${records.length} attendees from $fileName ($matchedCount matched with m-Lynq)!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error parsing attendance file: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load attendance list: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isParsingAttendanceFile = false);
+    }
+  }
+
+  Future<void> _showManualAttendeeUserSelectDialog(ManualAttendanceRecord record) async {
+    String search = '';
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDlgState) {
+          final filtered = _allMlynqUsers.where((u) {
+            final name = (u['name'] as String? ?? '').toLowerCase();
+            final email = (u['email'] as String? ?? '').toLowerCase();
+            final memId = (u['membership_id'] as String? ?? '').toLowerCase();
+            final q = search.toLowerCase();
+            return name.contains(q) || email.contains(q) || memId.contains(q);
+          }).toList();
+
+          return AlertDialog(
+            backgroundColor: darkCardBg,
+            title: Text('Assign m-Lynq User', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 420,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Attendee from list: ${record.rawName}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (record.rawEmail.isNotEmpty || record.rawMembershipId.isNotEmpty)
+                    Text('Details: ${record.rawEmail}${record.rawMembershipId.isNotEmpty ? ' • ID: ${record.rawMembershipId}' : ''}', style: const TextStyle(color: Colors.white54, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 12),
+                  TextField(
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search by student name, email, or ID...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      prefixIcon: const Icon(Icons.search, color: Colors.white60),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.05),
+                    ),
+                    onChanged: (val) => setDlgState(() => search = val),
+                  ),
+                  const SizedBox(height: 10),
+                  Text('Showing ${filtered.length} m-Lynq user(s):', style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                      itemBuilder: (context, idx) {
+                        final u = filtered[idx];
+                        final isSelected = record.matchedUser?['user_id'] == u['user_id'];
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          title: Text(u['name'] as String, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                          subtitle: Text('${u['email']}${u['membership_id'] != '' ? ' • ID: ${u['membership_id']}' : ''}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle, color: accentGreen, size: 18)
+                              : const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 14),
+                          onTap: () {
+                            setState(() {
+                              _manualAttendanceUserOverrides[record.key] = u['user_id'] as String;
+                              _recalculateManualAttendanceMatches();
+                            });
+                            Navigator.of(ctx).pop();
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _manualAttendanceUserOverrides.remove(record.key);
+                    record.matchedUser = null;
+                    record.matchType = 'none';
+                    record.score = 0;
+                    _recalculateManualAttendanceMatches();
+                  });
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('Clear Assignment', style: TextStyle(color: Colors.redAccent)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _publishCertificatesForManualAttendance() async {
+    if (_activeTemplateUrl == null || _activeTemplateUrl!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please upload or enter a presentation template URL first.')),
+      );
+      return;
+    }
+
+    final matched = _manualAttendanceRecords.where((r) => r.matchedUser != null).toList();
+    if (matched.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No matched attendees found in the uploaded list.')),
+      );
+      return;
+    }
+
+    final toPublish = matched.where((r) => !_alreadyIssuedIds.contains(r.matchedUser!['user_id'])).toList();
+
+    if (toPublish.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All matched attendees have already received certificates.')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: darkCardBg,
+        title: Text('Automate & Send Certificates', style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Generate automated certificates from the presentation template for ${toPublish.length} matched attendee(s) and send them directly to their m-Lynq accounts?\n\nAttendance will also be synchronized automatically.',
+          style: GoogleFonts.inter(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: accentGreen),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Generate & Send Now', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _isProcessing = true;
+      _processedCount = 0;
+      _failedCount = 0;
+      _progressMessage = 'Downloading template image...';
+    });
+
+    int successCount = 0;
+    final total = toPublish.length;
+    final List<String> errors = [];
+
+    try {
+      List<int> imageBytes = [];
+      String urlStr = (_activeTemplateUrl ?? _slidesUrlCtrl.text).trim();
+
+      final slideMatch = RegExp(r'docs\.google\.com/presentation/d/([a-zA-Z0-9_-]+)').firstMatch(urlStr);
+      if (slideMatch != null) {
+        final slideId = slideMatch.group(1);
+        urlStr = 'https://docs.google.com/presentation/d/$slideId/export/png';
+      }
+
+      final cleanPath = urlStr.replaceFirst('template:', '');
+
+      if (cleanPath.startsWith('http')) {
+        try {
+          final client = HttpClient();
+          final req = await client.getUrl(Uri.parse(cleanPath));
+          final res = await req.close();
+          if (res.statusCode == 200) {
+            imageBytes = await res.fold<List<int>>(<int>[], (acc, data) => acc..addAll(data));
+          }
+        } catch (_) {}
+      }
+
+      if (imageBytes.isEmpty && !cleanPath.startsWith('http')) {
+        final buckets = ['certificate_templates', 'event_posters', 'certificates'];
+        for (final b in buckets) {
+          try {
+            final downloaded = await _supabase.storage.from(b).download(cleanPath);
+            if (downloaded.isNotEmpty) {
+              imageBytes = downloaded;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      final dateStr = widget.event.date != null
+          ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
+          : '';
+
+      for (int i = 0; i < toPublish.length; i++) {
+        final item = toPublish[i];
+        final uid = item.matchedUser!['user_id'] as String;
+        final profName = item.matchedUser!['name'] as String? ?? '';
+        final sname = (profName.isNotEmpty && profName != 'Member')
+            ? profName
+            : (item.rawName.isNotEmpty ? item.rawName : 'Member');
+
+        setState(() {
+          _progressMessage = 'Generating for $sname (${i + 1}/$total)...';
+          _processedCount = i + 1;
+        });
+
+        try {
+          final certNum = 'ISTE-${widget.event.id}-${uid.replaceAll('-', '').substring(0, 6).toUpperCase()}';
+          final fieldValues = DynamicTemplateParser.resolveValues(
+            event: {
+              'title': widget.event.title,
+              'date': dateStr,
+              'location': widget.event.location,
+            },
+            studentName: sname,
+            certificateId: certNum,
+          );
+
+          final pdfBytes = await DynamicCertificatePdfEngine.renderImageCertificate(
+            imageBytes: imageBytes,
+            fieldValues: fieldValues,
+            fieldConfigs: _fieldConfigs,
+          );
+
+          final storagePath = '${widget.event.id}/$uid.pdf';
+          await _supabase.storage.from('certificates').uploadBinary(
+            storagePath,
+            pdfBytes,
+            fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
+          );
+
+          final certUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
+
+          final certCustomName = _certificateNameCtrl.text.trim().isNotEmpty
+              ? _certificateNameCtrl.text.trim()
+              : 'Certificate of Participation';
+          final certPayload = {
+            'event_id': widget.event.id,
+            'user_id': uid,
+            'student_name': sname,
+            'certificate_url': certUrl,
+            'file_url': certUrl,
+            'storage_path': storagePath,
+            'issued_at': DateTime.now().toIso8601String(),
+            'title': '$certCustomName — ${widget.event.title}',
+            'description': 'Awarded $certCustomName for ${widget.event.title}',
+          };
+
+          await _supabase.from('certificates').upsert(certPayload, onConflict: 'event_id,user_id');
+
+          // Mark/Sync attendance
+          try {
+            await _supabase.from('attendance').upsert({
+              'event_id': widget.event.id,
+              'user_id': uid,
+            }, onConflict: 'event_id,user_id');
+          } catch (_) {}
+
+          successCount++;
+        } catch (err) {
+          debugPrint('Error generating cert for $sname ($uid): $err');
+          errors.add('$sname: $err');
+          _failedCount++;
+        }
+      }
+
+      if (errors.isNotEmpty && mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: darkCardBg,
+            title: const Text('Some Certificates Failed', style: TextStyle(color: Colors.orangeAccent)),
+            content: SingleChildScrollView(
+              child: Text(
+                'Failed to publish $_failedCount certificates.\n\nErrors:\n${errors.take(5).join('\n')}${errors.length > 5 ? '\n...and more' : ''}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Batch issuance error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Issuance failed: $e'), backgroundColor: Colors.redAccent),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _progressMessage = '';
+          _lastSuccessCount = successCount;
+        });
+        _loadStatsAndTemplate();
+      }
+    }
+  }
+
   // Multi-tier matching engine
   List<AttendeeCertMatch> _calculateMatches() {
     return _attendees.map((att) {
@@ -717,6 +1378,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
         final publicUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
 
+        final certCustomName = _certificateNameCtrl.text.trim().isNotEmpty
+            ? _certificateNameCtrl.text.trim()
+            : 'Certificate of Participation';
         await _supabase.from('certificates').upsert({
           'event_id': widget.event.id,
           'user_id': uid,
@@ -725,8 +1389,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           'file_url': publicUrl,
           'storage_path': storagePath,
           'issued_at': DateTime.now().toIso8601String(),
-          'title': 'Certificate of Participation — ${widget.event.title}',
-          'description': 'Awarded for attending ${widget.event.title}',
+          'title': '$certCustomName — ${widget.event.title}',
+          'description': 'Awarded $certCustomName for ${widget.event.title}',
         }, onConflict: 'event_id,user_id');
 
         successCount++;
@@ -979,6 +1643,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
         final publicUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
 
+        final certCustomName = _certificateNameCtrl.text.trim().isNotEmpty
+            ? _certificateNameCtrl.text.trim()
+            : 'Certificate of Participation';
         await _supabase.from('certificates').upsert({
           'event_id': widget.event.id,
           'user_id': uid,
@@ -987,8 +1654,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           'file_url': publicUrl,
           'storage_path': storagePath,
           'issued_at': DateTime.now().toIso8601String(),
-          'title': 'Certificate of Participation — ${widget.event.title}',
-          'description': 'Awarded for attending ${widget.event.title}',
+          'title': '$certCustomName — ${widget.event.title}',
+          'description': 'Awarded $certCustomName for ${widget.event.title}',
         }, onConflict: 'event_id,user_id');
 
         // Optional attendance sync so they also appear as present for this event
@@ -1231,6 +1898,9 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
           final certUrl = _supabase.storage.from('certificates').getPublicUrl(storagePath);
 
+          final certCustomName = _certificateNameCtrl.text.trim().isNotEmpty
+              ? _certificateNameCtrl.text.trim()
+              : 'Certificate of Participation';
           final certPayload = {
             'event_id': widget.event.id,
             'user_id': userId,
@@ -1239,8 +1909,8 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
             'file_url': certUrl,
             'storage_path': storagePath,
             'issued_at': DateTime.now().toIso8601String(),
-            'title': 'Certificate of Participation — ${widget.event.title}',
-            'description': 'Awarded for attending ${widget.event.title}',
+            'title': '$certCustomName — ${widget.event.title}',
+            'description': 'Awarded $certCustomName for ${widget.event.title}',
           };
 
           await _supabase.from('certificates').upsert(certPayload, onConflict: 'event_id,user_id');
@@ -1302,6 +1972,22 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
     final fileMatches = _calculateMatchesForFiles();
     final pendingFileMatchedCount = fileMatches.where((m) => m.matchedUser != null && !_alreadyIssuedIds.contains(m.matchedUser!['user_id'])).length;
+
+    // Manual Attendance List stats
+    final totalInManualList = _manualAttendanceRecords.length;
+    final matchedInManualList = _manualAttendanceRecords.where((r) => r.matchedUser != null).length;
+    final unmatchedInManualList = _manualAttendanceRecords.where((r) => r.matchedUser == null).length;
+    final pendingToPublishInManualList = _manualAttendanceRecords.where((r) => r.matchedUser != null && !_alreadyIssuedIds.contains(r.matchedUser!['user_id'])).length;
+    final manualMatchPercentage = totalInManualList > 0 ? ((matchedInManualList / totalInManualList) * 100).toStringAsFixed(1) : '0';
+
+    final filteredManualRecords = _manualAttendanceRecords.where((r) {
+      if (_attendanceListFilter == 'matched') return r.matchedUser != null;
+      if (_attendanceListFilter == 'unmatched') return r.matchedUser == null;
+      if (_attendanceListFilter == 'pending') {
+        return r.matchedUser != null && !_alreadyIssuedIds.contains(r.matchedUser!['user_id']);
+      }
+      return true;
+    }).toList();
 
     final dateStr = widget.event.date != null
         ? '${widget.event.date!.day}/${widget.event.date!.month}/${widget.event.date!.year}'
@@ -1400,6 +2086,44 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                         ],
                       ),
                     ),
+                  // Certificate Name / Type Configuration Card
+                  _buildDarkCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.workspace_premium_rounded, color: Colors.amber, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Certificate Name / Type',
+                              style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Customize the certificate name shown to participants in m-Lynq (e.g. Certificate of Participation, Certificate of Appreciation, Winner, 1st Prize, etc.).',
+                          style: GoogleFonts.inter(color: Colors.white60, fontSize: 12),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _certificateNameCtrl,
+                          style: GoogleFonts.inter(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                          decoration: InputDecoration(
+                            labelText: 'Certificate Name / Title',
+                            labelStyle: GoogleFonts.inter(color: Colors.white70),
+                            hintText: 'e.g. Certificate of Participation',
+                            hintStyle: GoogleFonts.inter(color: Colors.white30),
+                            prefixIcon: const Icon(Icons.card_membership_rounded, color: Colors.amber),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.05),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
 
                   // Mode Selector Tabs (Automated vs Manual)
@@ -1459,7 +2183,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                   const SizedBox(height: 16),
 
                   // Tab 0: Automated (Google Slides)
-                  if (_selectedTab == 0)
+                  if (_selectedTab == 0) ...[
                     _buildDarkCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1525,6 +2249,323 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // Attendance Source & Manual Attendance List Card
+                    _buildDarkCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Attendance Source & Participant Matching',
+                                style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              if (_isParsingAttendanceFile)
+                                const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: accentGreen)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Choose participants from event registrations or upload an external attendance sheet (CSV/Excel) to auto-match with m-Lynq profiles.',
+                            style: GoogleFonts.inter(color: Colors.white60, fontSize: 12),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Toggle Source (Registrations vs Manual Attendance Sheet)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white12),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => setState(() => _automatedAttendanceSource = 0),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: _automatedAttendanceSource == 0 ? accentGreen.withOpacity(0.2) : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: _automatedAttendanceSource == 0 ? Border.all(color: accentGreen.withOpacity(0.6)) : null,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.qr_code_scanner, size: 16, color: _automatedAttendanceSource == 0 ? accentGreen : Colors.white60),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            'App / QR (${_attendees.length})',
+                                            style: GoogleFonts.inter(
+                                              color: _automatedAttendanceSource == 0 ? Colors.white : Colors.white60,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () => setState(() => _automatedAttendanceSource = 1),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: _automatedAttendanceSource == 1 ? accentGreen.withOpacity(0.2) : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: _automatedAttendanceSource == 1 ? Border.all(color: accentGreen.withOpacity(0.6)) : null,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.upload_file_rounded, size: 16, color: _automatedAttendanceSource == 1 ? accentGreen : Colors.white60),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            totalInManualList > 0 ? 'Manual List ($totalInManualList)' : 'Upload Manual List',
+                                            style: GoogleFonts.inter(
+                                              color: _automatedAttendanceSource == 1 ? Colors.white : Colors.white60,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          if (_automatedAttendanceSource == 0) ...[
+                            const SizedBox(height: 14),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.03),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.white10),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.people_outline, color: accentGreen, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Targeting ${_attendees.length} participant(s) registered or scanned via QR for this event. $pendingCount pending issuance.',
+                                      style: GoogleFonts.inter(color: Colors.white70, fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(height: 14),
+                            // Upload Box
+                            InkWell(
+                              onTap: _isParsingAttendanceFile ? null : _pickAndParseAttendanceFile,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.03),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: accentGreen.withOpacity(0.4), width: 1.2),
+                                ),
+                                child: Column(
+                                  children: [
+                                    if (_isParsingAttendanceFile)
+                                      const CircularProgressIndicator(color: accentGreen)
+                                    else
+                                      const Icon(Icons.note_add_outlined, size: 36, color: accentGreen),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _uploadedAttendanceFileName != null
+                                          ? 'File: $_uploadedAttendanceFileName'
+                                          : 'Select Attendance File (.csv, .xlsx, .xls, .txt)',
+                                      style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _uploadedAttendanceFileName != null
+                                          ? 'Tap to choose another file or re-upload'
+                                          : 'Auto-detects Name, Email, and Membership ID columns & matches with m-Lynq students',
+                                      style: GoogleFonts.inter(color: Colors.white54, fontSize: 11),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // Match statistics & list
+                            if (_manualAttendanceRecords.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              // Match Overview Card
+                              Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: accentGreen.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: accentGreen.withOpacity(0.3)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.analytics_outlined, color: accentGreen, size: 18),
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Attendance Matches Overview',
+                                              style: GoogleFonts.spaceGrotesk(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                            ),
+                                          ],
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: accentGreen.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            '$manualMatchPercentage% Matched',
+                                            style: GoogleFonts.inter(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 11),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _buildMetricTile('Total In Sheet', '$totalInManualList', Colors.white70),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildMetricTile('Matches Found', '$matchedInManualList', accentGreen),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildMetricTile('Unmatched', '$unmatchedInManualList', unmatchedInManualList > 0 ? Colors.orangeAccent : Colors.white38),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _buildMetricTile('Pending to Issue', '$pendingToPublishInManualList', accentBlue),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              // Filter Tabs
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    _buildFilterChip('all', 'All ($totalInManualList)'),
+                                    const SizedBox(width: 6),
+                                    _buildFilterChip('matched', 'Matched ($matchedInManualList)'),
+                                    const SizedBox(width: 6),
+                                    _buildFilterChip('unmatched', 'Unmatched ($unmatchedInManualList)'),
+                                    const SizedBox(width: 6),
+                                    _buildFilterChip('pending', 'Pending ($pendingToPublishInManualList)'),
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              // Preview List
+                              Container(
+                                constraints: const BoxConstraints(maxHeight: 280),
+                                decoration: BoxDecoration(
+                                  color: Colors.black26,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.white12),
+                                ),
+                                child: filteredManualRecords.isEmpty
+                                    ? const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(20),
+                                          child: Text('No attendees in this filter', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                                        ),
+                                      )
+                                    : ListView.separated(
+                                        shrinkWrap: true,
+                                        itemCount: filteredManualRecords.length,
+                                        separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                                        itemBuilder: (ctx, i) {
+                                          final r = filteredManualRecords[i];
+                                          final isIssued = r.matchedUser != null && _alreadyIssuedIds.contains(r.matchedUser!['user_id']);
+                                          return ListTile(
+                                            dense: true,
+                                            title: Text(
+                                              r.rawName.isNotEmpty ? r.rawName : 'Unknown Name',
+                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                                            ),
+                                            subtitle: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                if (r.rawEmail.isNotEmpty || r.rawMembershipId.isNotEmpty)
+                                                  Text(
+                                                    'Sheet: ${r.rawEmail}${r.rawMembershipId.isNotEmpty ? ' • ID: ${r.rawMembershipId}' : ''}',
+                                                    style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                                  ),
+                                                Text(
+                                                  r.matchedUser != null
+                                                      ? '👤 Matched: ${r.matchedUser!['name']} (${r.matchedUser!['email']})'
+                                                      : '⚠️ Not found in m-Lynq database. Tap edit to assign manually.',
+                                                  style: TextStyle(
+                                                    color: r.matchedUser != null ? Colors.white70 : Colors.amberAccent,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            trailing: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (isIssued)
+                                                  const Text('Issued', style: TextStyle(color: accentGreen, fontWeight: FontWeight.bold, fontSize: 11))
+                                                else if (r.matchedUser != null)
+                                                  _buildMatchBadge(r.matchType)
+                                                else
+                                                  const Text('Unmatched', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
+                                                const SizedBox(width: 4),
+                                                IconButton(
+                                                  icon: const Icon(Icons.edit_note, size: 20, color: Colors.white60),
+                                                  tooltip: 'Assign / Override m-Lynq User',
+                                                  onPressed: () => _showManualAttendeeUserSelectDialog(r),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
 
                   // Tab 1: Manual (Google Drive Link / Files)
                   if (_selectedTab == 1)
@@ -1820,9 +2861,13 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
-                              value: _publishWithoutAttendance
-                                  ? (_manualFiles.isEmpty ? 0 : (_processedCount / _manualFiles.length).clamp(0.0, 1.0))
-                                  : (_attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0)),
+                              value: _selectedTab == 0
+                                  ? (_automatedAttendanceSource == 1
+                                      ? (_manualAttendanceRecords.isEmpty ? 0 : (_processedCount / (pendingToPublishInManualList == 0 ? 1 : pendingToPublishInManualList)).clamp(0.0, 1.0))
+                                      : (_attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0)))
+                                  : (_publishWithoutAttendance
+                                      ? (_manualFiles.isEmpty ? 0 : (_processedCount / _manualFiles.length).clamp(0.0, 1.0))
+                                      : (_attendees.isEmpty ? 0 : (_processedCount / (_attendees.length - _alreadyIssuedIds.length)).clamp(0.0, 1.0))),
                               color: accentGreen,
                               backgroundColor: Colors.white12,
                               minHeight: 8,
@@ -1854,23 +2899,42 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
                   // Big Action Button
                   if (_selectedTab == 0)
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.play_arrow, size: 22),
-                        label: Text(
-                          'Publish to $pendingCount Pending Participants',
-                          style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold),
+                    if (_automatedAttendanceSource == 1)
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.play_arrow, size: 22),
+                          label: Text(
+                            'Automate & Send Certificates to $pendingToPublishInManualList Matched Attendees',
+                            style: GoogleFonts.spaceGrotesk(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: (pendingToPublishInManualList > 0 && _activeTemplateUrl != null && !_isProcessing) ? accentGreen : Colors.white12,
+                            foregroundColor: (pendingToPublishInManualList > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.black : Colors.white38,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: (pendingToPublishInManualList == 0 || _activeTemplateUrl == null || _isProcessing) ? null : _publishCertificatesForManualAttendance,
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.amber[700] : Colors.white12,
-                          foregroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.black : Colors.white38,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      )
+                    else
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.play_arrow, size: 22),
+                          label: Text(
+                            'Publish to $pendingCount Pending Participants',
+                            style: GoogleFonts.spaceGrotesk(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.amber[700] : Colors.white12,
+                            foregroundColor: (pendingCount > 0 && _activeTemplateUrl != null && !_isProcessing) ? Colors.black : Colors.white38,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          onPressed: (pendingCount == 0 || _activeTemplateUrl == null || _isProcessing) ? null : _generateAllCertificates,
                         ),
-                        onPressed: (pendingCount == 0 || _activeTemplateUrl == null || _isProcessing) ? null : _generateAllCertificates,
-                      ),
-                    )
+                      )
                   else if (_publishWithoutAttendance)
                     SizedBox(
                       width: double.infinity,
@@ -1911,6 +2975,73 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
               ),
             ),
           ),
+    );
+  }
+
+  Widget _buildMetricTile(String label, String value, Color valueColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Text(value, style: GoogleFonts.spaceGrotesk(fontSize: 15, fontWeight: FontWeight.bold, color: valueColor)),
+          const SizedBox(height: 2),
+          Text(label, style: GoogleFonts.inter(fontSize: 9, color: Colors.white60), textAlign: TextAlign.center, maxLines: 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String key, String label) {
+    final isSelected = _attendanceListFilter == key;
+    return ChoiceChip(
+      label: Text(label, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, color: isSelected ? Colors.black : Colors.white70)),
+      selected: isSelected,
+      selectedColor: accentGreen,
+      backgroundColor: Colors.white.withOpacity(0.05),
+      onSelected: (_) => setState(() => _attendanceListFilter = key),
+    );
+  }
+
+  Widget _buildMatchBadge(String matchType) {
+    Color color;
+    String label;
+    switch (matchType) {
+      case 'exact_email':
+        color = accentGreen;
+        label = 'Email (100%)';
+        break;
+      case 'exact_id':
+        color = accentGreen;
+        label = 'ID Match';
+        break;
+      case 'exact_name':
+        color = accentBlue;
+        label = 'Exact Name';
+        break;
+      case 'fuzzy_name':
+        color = Colors.amber;
+        label = 'Fuzzy Name';
+        break;
+      case 'manual':
+        color = Colors.purpleAccent;
+        label = 'Manual';
+        break;
+      default:
+        color = Colors.white54;
+        label = matchType;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
     );
   }
 
