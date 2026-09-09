@@ -211,16 +211,28 @@ export const CertificateIssuanceScreen: React.FC = () => {
     loadStats();
   }, [id]);
 
-  // Clean and normalize strings for multi-tier matching
-  const normalizeText = (text: string): string => {
-    return text
-      .toLowerCase()
-      .replace(/\.(pdf|png|jpg|jpeg)$/i, '')
-      .replace(/^(certificate|cert|participation|attendance)[_\-\s]+/i, '')
-      .replace(/[_\-.]+/g, ' ')
-      .replace(/[^a-z0-9\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+  // Clean and normalize strings for multi-tier matching:
+  // 100% case-insensitive, unconditionally strips .pdf and image extensions,
+  // ignores prefixes/formatting/separators for exact and fuzzy comparisons.
+  const normalizeText = (text?: string | null): string => {
+    if (!text) return '';
+    let s = text.trim();
+    // 1. Strip file extension (.pdf, .png, .jpg, .jpeg) case-insensitively, including any trailing spaces
+    s = s.replace(/\.(pdf|png|jpg|jpeg)\s*$/i, '');
+    // Also remove standalone .pdf token if present
+    s = s.replace(/\bpdf\b/gi, '');
+    // 2. Convert to lowercase for 100% case-insensitive comparison
+    s = s.toLowerCase();
+    // 3. Remove common certificate prefixes (case-insensitive)
+    s = s.replace(/^(certificate|cert|participation|appreciation|attendance|winner|completion)[_\-\s]+/i, '');
+    // 4. Remove leading numbering/indexes e.g. "01.", "1 - ", "(1)"
+    s = s.replace(/^(\d+[\.\-_)\s]+|\(\d+\)\s*)/, '');
+    // 5. Replace separators (dots, underscores, hyphens, slashes) with space
+    s = s.replace(/[_\-.\/\\|]+/g, ' ');
+    // 6. Keep only alphanumeric and spaces
+    s = s.replace(/[^a-z0-9\s]/g, '');
+    // 7. Collapse spaces and trim
+    return s.replace(/\s+/g, ' ').trim();
   };
 
   // Multi-tier matching for Non-Attendance List mode (File -> m-Lynq User)
@@ -239,7 +251,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       }
 
       const cleanFile = normalizeText(file.name);
-      const fileTokens = cleanFile.split(' ').filter(t => t.length > 1);
+      const fileTokens = cleanFile.split(' ').filter(t => t.length >= 1);
 
       let bestUser: Attendee | null = null;
       let bestType: 'exact' | 'contains' | 'token' | 'none' = 'none';
@@ -247,7 +259,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
       for (const user of allMlynqUsers) {
         const cleanStudent = normalizeText(user.name);
-        const studentTokens = cleanStudent.split(' ').filter(t => t.length > 1);
+        const studentTokens = cleanStudent.split(' ').filter(t => t.length >= 1);
         const cleanEmail = user.email ? normalizeText(user.email.split('@')[0]) : '';
         const cleanMemberId = user.membership_id ? normalizeText(user.membership_id) : '';
 
@@ -334,7 +346,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       }
 
       const cleanStudent = normalizeText(attendee.name);
-      const studentTokens = cleanStudent.split(' ').filter(t => t.length > 1);
+      const studentTokens = cleanStudent.split(' ').filter(t => t.length >= 1);
       const cleanEmail = attendee.email ? normalizeText(attendee.email.split('@')[0]) : '';
       const cleanMemberId = attendee.membership_id ? normalizeText(attendee.membership_id) : '';
 
@@ -344,7 +356,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
       for (const f of fileList) {
         const cleanFile = normalizeText(f.name);
-        const fileTokens = cleanFile.split(' ').filter(t => t.length > 1);
+        const fileTokens = cleanFile.split(' ').filter(t => t.length >= 1);
 
         // 1. Exact match
         if (cleanFile === cleanStudent) {
@@ -431,7 +443,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
       }
 
       const cleanRecordName = normalizeText(record.rawName);
-      const recordTokens = cleanRecordName.split(' ').filter(t => t.length > 1);
+      const recordTokens = cleanRecordName.split(' ').filter(t => t.length >= 1);
       const cleanRecordEmail = record.rawEmail.trim().toLowerCase();
       const cleanRecordId = normalizeText(record.rawMembershipId);
 
@@ -443,7 +455,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
         const userEmail = (user.email || '').trim().toLowerCase();
         const userId = normalizeText(user.membership_id || '');
         const cleanUserName = normalizeText(user.name);
-        const userTokens = cleanUserName.split(' ').filter(t => t.length > 1);
+        const userTokens = cleanUserName.split(' ').filter(t => t.length >= 1);
 
         // 1. Exact Email Match
         if (cleanRecordEmail && userEmail && cleanRecordEmail === userEmail) {

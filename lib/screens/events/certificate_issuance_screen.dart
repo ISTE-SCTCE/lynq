@@ -337,16 +337,27 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
     }
   }
 
-  // Normalization for matching
+  // Normalization for matching:
+  // 100% case-insensitive, unconditionally strips .pdf and image extensions,
+  // ignores prefixes/formatting/separators for exact and fuzzy comparisons.
   String _normalizeText(String input) {
-    return input
-        .toLowerCase()
-        .replaceAll(RegExp(r'\.(pdf|png|jpg|jpeg)$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'^(certificate|cert|participation|attendance)[_\-\s]+', caseSensitive: false), '')
-        .replaceAll(RegExp(r'[_\-.]+'), ' ')
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
+    var s = input.trim();
+    // 1. Strip file extension (.pdf, .png, .jpg, .jpeg) case-insensitively, including trailing spaces
+    s = s.replaceAll(RegExp(r'\.(pdf|png|jpg|jpeg)\s*$', caseSensitive: false), '');
+    // Remove standalone .pdf token if present
+    s = s.replaceAll(RegExp(r'\bpdf\b', caseSensitive: false), '');
+    // 2. Convert to lowercase for 100% case-insensitive comparison
+    s = s.toLowerCase();
+    // 3. Remove common certificate prefixes (case-insensitive)
+    s = s.replaceAll(RegExp(r'^(certificate|cert|participation|appreciation|attendance|winner|completion)[_\-\s]+', caseSensitive: false), '');
+    // 4. Remove leading numbering/indexes e.g. "01.", "1 - ", "(1)"
+    s = s.replaceAll(RegExp(r'^(\d+[\.\-_)\s]+|\(\d+\)\s*)'), '');
+    // 5. Replace separators with space
+    s = s.replaceAll(RegExp(r'[_\-.\/\\|]+'), ' ');
+    // 6. Keep only alphanumeric and spaces
+    s = s.replaceAll(RegExp(r'[^a-z0-9\s]'), '');
+    // 7. Collapse spaces and trim
+    return s.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   // Multi-tier matching engine for Non-Attendance List mode (File -> m-Lynq User)
@@ -368,7 +379,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       }
 
       final cleanFile = _normalizeText(file.name);
-      final fileTokens = cleanFile.split(' ').where((t) => t.length > 1).toList();
+      final fileTokens = cleanFile.split(' ').where((t) => t.length >= 1).toList();
 
       Map<String, dynamic>? bestUser;
       String bestType = 'none';
@@ -376,7 +387,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
       for (final user in _allMlynqUsers) {
         final cleanStudent = _normalizeText(user['name'] as String? ?? '');
-        final studentTokens = cleanStudent.split(' ').where((t) => t.length > 1).toList();
+        final studentTokens = cleanStudent.split(' ').where((t) => t.length >= 1).toList();
         final cleanEmail = user['email'] != null && (user['email'] as String).isNotEmpty
             ? _normalizeText((user['email'] as String).split('@').first)
             : '';
@@ -668,7 +679,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       }
 
       final cleanRecordName = _normalizeText(record.rawName);
-      final recordTokens = cleanRecordName.split(' ').where((t) => t.length > 1).toList();
+      final recordTokens = cleanRecordName.split(' ').where((t) => t.length >= 1).toList();
       final cleanRecordEmail = record.rawEmail.trim().toLowerCase();
       final cleanRecordId = _normalizeText(record.rawMembershipId);
 
@@ -680,7 +691,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         final userEmail = (user['email'] as String? ?? '').trim().toLowerCase();
         final userId = _normalizeText(user['membership_id'] as String? ?? '');
         final cleanUserName = _normalizeText(user['name'] as String? ?? '');
-        final userTokens = cleanUserName.split(' ').where((t) => t.length > 1).toList();
+        final userTokens = cleanUserName.split(' ').where((t) => t.length >= 1).toList();
 
         // 1. Exact Email Match (Score 100)
         if (cleanRecordEmail.isNotEmpty && userEmail.isNotEmpty && cleanRecordEmail == userEmail) {
@@ -1168,7 +1179,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
       }
 
       final cleanStudent = _normalizeText(att['name'] as String? ?? '');
-      final studentTokens = cleanStudent.split(' ').where((t) => t.length > 1).toList();
+      final studentTokens = cleanStudent.split(' ').where((t) => t.length >= 1).toList();
       final cleanEmail = att['email'] != null && (att['email'] as String).isNotEmpty
           ? _normalizeText((att['email'] as String).split('@').first)
           : '';
@@ -1182,7 +1193,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
 
       for (final f in _manualFiles) {
         final cleanFile = _normalizeText(f.name);
-        final fileTokens = cleanFile.split(' ').where((t) => t.length > 1).toList();
+        final fileTokens = cleanFile.split(' ').where((t) => t.length >= 1).toList();
 
         // 1. Exact match
         if (cleanFile == cleanStudent) {
@@ -1440,6 +1451,26 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         req.maxRedirects = 5;
         final res = await req.close();
 
+        String driveFileName = '';
+        void extractDisposition(HttpClientResponse r) {
+          final disp = r.headers.value('content-disposition');
+          if (disp != null) {
+            final utf8Match = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false).firstMatch(disp);
+            if (utf8Match != null) {
+              try {
+                driveFileName = Uri.decodeComponent(utf8Match.group(1)!);
+              } catch (_) {}
+            }
+            if (driveFileName.isEmpty) {
+              final nameMatch = RegExp(r'filename="?([^";]+)"?', caseSensitive: false).firstMatch(disp);
+              if (nameMatch != null) {
+                driveFileName = nameMatch.group(1)!.trim();
+              }
+            }
+          }
+        }
+        extractDisposition(res);
+
         List<int> bytes = await res.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
 
         // Check if there is a Google large file confirmation page
@@ -1452,6 +1483,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
               final confirmReq = await client.getUrl(Uri.parse(confirmUrl));
               confirmReq.followRedirects = true;
               final confirmRes = await confirmReq.close();
+              extractDisposition(confirmRes);
               bytes = await confirmRes.fold<List<int>>([], (acc, chunk) => acc..addAll(chunk));
             }
           } catch (_) {}
@@ -1483,7 +1515,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
         } else if (bytes.length > 4 && bytes[0] == 0x25 && bytes[1] == 0x50 && bytes[2] == 0x44 && bytes[3] == 0x46) {
           // Direct PDF
           extracted.add(CertFileItem(
-            name: 'drive_certificate.pdf',
+            name: driveFileName.isNotEmpty ? driveFileName : 'drive_certificate.pdf',
             bytes: bytes,
             extension: 'pdf',
           ));
@@ -1491,7 +1523,7 @@ class _CertificateIssuanceScreenState extends State<CertificateIssuanceScreen> {
           // Direct Image
           final ext = bytes[0] == 0x89 ? 'png' : 'jpg';
           extracted.add(CertFileItem(
-            name: 'drive_certificate.$ext',
+            name: driveFileName.isNotEmpty ? driveFileName : 'drive_certificate.$ext',
             bytes: bytes,
             extension: ext,
           ));
