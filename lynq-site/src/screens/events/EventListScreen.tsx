@@ -97,8 +97,8 @@ export const EventListScreen: React.FC = () => {
 
   if (!currentUser || !permissions) return null;
 
-  // Filter events matching selected date
-  const filteredEvents = events.filter((e) => e.date === selectedDate);
+  // Filter events matching selected date (or show all if empty)
+  const filteredEvents = selectedDate ? events.filter((e) => e.date === selectedDate) : events;
   const canAdd = permissions.isAtLeastTier2 || (folderId && permissions.canDoInFolder(folderId, 'create_events'));
 
   // Map events to the calendar expected structure
@@ -131,12 +131,51 @@ export const EventListScreen: React.FC = () => {
         )}
       </header>
 
-      {/* Dynamic Animated Swipeable Calendar Filter */}
+      {/* Dynamic Animated Full Month Calendar */}
       <CalendarWidget
         events={mappedEventsData}
         selectedDate={selectedDate}
-        onDateSelect={(date) => setSelectedDate(date)}
+        onDateSelect={(date) => {
+          if (selectedDate === date) {
+            setSelectedDate('');
+          } else {
+            setSelectedDate(date);
+          }
+        }}
+        onClearDateFilter={() => setSelectedDate('')}
       />
+
+      {/* Events Filter Status Bar */}
+      <div className="events-filter-bar">
+        <div className="events-filter-info">
+          {selectedDate ? (
+            <>
+              <span className="filter-label">Events on</span>
+              <span className="filter-date-highlight">
+                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
+              </span>
+            </>
+          ) : (
+            <span className="filter-label">Showing all events</span>
+          )}
+          <span className="events-count-pill">{filteredEvents.length}</span>
+        </div>
+
+        {selectedDate && (
+          <button
+            type="button"
+            onClick={() => setSelectedDate('')}
+            className="clear-filter-btn"
+          >
+            Show All Events
+          </button>
+        )}
+      </div>
 
       {/* Events Flow Listing */}
       {isLoading ? (
@@ -144,9 +183,19 @@ export const EventListScreen: React.FC = () => {
           <Loader size={24} className="spinner" />
         </div>
       ) : filteredEvents.length === 0 ? (
-        <div className="events-empty flex-center" style={{ flexDirection: 'column', height: '200px' }}>
+        <div className="events-empty flex-center" style={{ flexDirection: 'column', height: '220px' }}>
           <CalendarIcon size={44} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
           <span>No events on this day.</span>
+          {selectedDate && (
+            <button
+              type="button"
+              onClick={() => setSelectedDate('')}
+              className="events-show-all-btn"
+              style={{ marginTop: '14px' }}
+            >
+              Show All Events ({events.length})
+            </button>
+          )}
         </div>
       ) : (
         <div className="events-list-flow" style={{ marginBottom: '40px' }}>
@@ -238,6 +287,78 @@ export const EventListScreen: React.FC = () => {
           font-weight: 800;
           font-size: 20px;
           color: var(--text-primary);
+        }
+
+        .events-filter-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 16px;
+          padding: 0 4px;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .events-filter-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .filter-label {
+          font-size: 13px;
+          color: var(--text-muted);
+        }
+
+        .filter-date-highlight {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .events-count-pill {
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 20px;
+          background: rgba(var(--secondary-neon), 0.15);
+          color: rgb(var(--secondary-neon));
+          border: 1px solid rgba(var(--secondary-neon), 0.3);
+        }
+
+        .clear-filter-btn {
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--text-secondary);
+          border: 1px solid var(--border-light);
+          padding: 4px 10px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .clear-filter-btn:hover {
+          color: var(--text-primary);
+          background: rgba(var(--secondary-neon), 0.15);
+        }
+
+        .events-show-all-btn {
+          background: linear-gradient(135deg, rgba(22, 192, 122, 0.85), rgba(16, 150, 95, 0.9));
+          color: #ffffff;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 10px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 4px 12px rgba(22, 192, 122, 0.3);
+        }
+
+        .events-show-all-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 6px 16px rgba(22, 192, 122, 0.4);
         }
 
         .date-filter-section {

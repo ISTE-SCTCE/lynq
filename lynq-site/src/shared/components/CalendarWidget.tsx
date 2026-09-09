@@ -1,300 +1,532 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 
 export interface CalendarEvent {
   title: string;
-  time: string;
+  time?: string;
+  [key: string]: any;
 }
 
 export interface EventsData {
   [key: string]: any[];
 }
 
-interface DateItem {
-  day: number;
-  fullDate: string;
-  month: number;
-  year: number;
-  dateObj: Date;
-  dayOfWeek: number;
-  dayName: string;
-}
-
 export interface CalendarWidgetProps {
   events: EventsData;
   selectedDate: string;
   onDateSelect: (date: string) => void;
+  onClearDateFilter?: () => void;
 }
 
-const daysOfWeek: string[] = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function formatDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   events,
   selectedDate,
   onDateSelect,
 }) => {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const isDragging = useRef<boolean>(false);
-  const startX = useRef<number>(0);
-  const scrollLeftStart = useRef<number>(0);
+  const initialDate = useMemo(() => {
+    if (selectedDate) {
+      const parts = selectedDate.split('-');
+      if (parts.length === 3) {
+        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+      }
+    }
+    return new Date();
+  }, [selectedDate]);
 
-  // Generate dynamic 90-day range: 30 days in the past, to 60 days in the future
-  const dates: DateItem[] = Array.from({ length: 90 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - 30 + i);
-    return {
-      day: date.getDate(),
-      fullDate: date.toISOString().split('T')[0],
-      month: date.getMonth(),
-      year: date.getFullYear(),
-      dateObj: date,
-      dayOfWeek: date.getDay(),
-      dayName: daysOfWeek[date.getDay()],
-    };
-  });
+  const [viewDate, setViewDate] = useState<Date>(initialDate);
+  const [slideDirection, setSlideDirection] = useState<number>(0);
 
-  // Calculate Month & Year string dynamically based on selected date
-  const selectedDateObj = new Date(selectedDate);
-  const currentMonthYear = selectedDateObj.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const todayStr = useMemo(() => formatDateKey(new Date()), []);
 
-  // Smooth desktop mouse-drag scrolling
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
 
-    const onMouseDown = (e: MouseEvent) => {
-      isDragging.current = true;
-      startX.current = e.pageX - el.offsetLeft;
-      scrollLeftStart.current = el.scrollLeft;
-      el.style.cursor = 'grabbing';
-    };
+  const handlePrevMonth = () => {
+    setSlideDirection(-1);
+    setViewDate(new Date(year, month - 1, 1));
+  };
 
-    const onMouseLeave = () => {
-      isDragging.current = false;
-      el.style.cursor = 'grab';
-    };
+  const handleNextMonth = () => {
+    setSlideDirection(1);
+    setViewDate(new Date(year, month + 1, 1));
+  };
 
-    const onMouseUp = () => {
-      isDragging.current = false;
-      el.style.cursor = 'grab';
-    };
+  const handleToday = () => {
+    const today = new Date();
+    setSlideDirection(today > viewDate ? 1 : -1);
+    setViewDate(today);
+    onDateSelect(todayStr);
+  };
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      e.preventDefault();
-      const x = e.pageX - el.offsetLeft;
-      const walk = (x - startX.current) * 1.5; // Drag speed modifier
-      el.scrollLeft = scrollLeftStart.current - walk;
-    };
+  const handleMonthChange = (newMonth: number) => {
+    setSlideDirection(newMonth > month ? 1 : -1);
+    setViewDate(new Date(year, newMonth, 1));
+  };
 
-    el.style.cursor = 'grab';
-    el.addEventListener('mousedown', onMouseDown);
-    el.addEventListener('mouseleave', onMouseLeave);
-    el.addEventListener('mouseup', onMouseUp);
-    el.addEventListener('mousemove', onMouseMove);
+  const handleYearChange = (newYear: number) => {
+    setSlideDirection(newYear > year ? 1 : -1);
+    setViewDate(new Date(newYear, month, 1));
+  };
 
-    // Initial center on the selected date
-    const selectedIndex = dates.findIndex((d) => d.fullDate === selectedDate);
-    if (selectedIndex !== -1 && el) {
-      setTimeout(() => {
-        const itemWidth = 56; // estimated column width (40px + 16px gap)
-        const containerWidth = el.clientWidth;
-        const scrollPosition = selectedIndex * itemWidth - containerWidth / 2 + itemWidth / 2;
-        el.scrollTo({ left: scrollPosition, behavior: 'smooth' });
-      }, 100);
+  const calendarGrid = useMemo(() => {
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+    const cells: {
+      dateKey: string;
+      dayNum: number;
+      isCurrentMonth: boolean;
+      isToday: boolean;
+      isSelected: boolean;
+      eventCount: number;
+      targetDate: Date;
+    }[] = [];
+
+    // Preceding days
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      const d = new Date(year, month - 1, dayNum);
+      const dateKey = formatDateKey(d);
+      cells.push({
+        dateKey,
+        dayNum,
+        isCurrentMonth: false,
+        isToday: dateKey === todayStr,
+        isSelected: dateKey === selectedDate,
+        eventCount: events[dateKey]?.length || 0,
+        targetDate: d,
+      });
     }
 
-    return () => {
-      el.removeEventListener('mousedown', onMouseDown);
-      el.removeEventListener('mouseleave', onMouseLeave);
-      el.removeEventListener('mouseup', onMouseUp);
-      el.removeEventListener('mousemove', onMouseMove);
-    };
-  }, []);
+    // Current month days
+    for (let i = 1; i <= daysInCurrentMonth; i++) {
+      const d = new Date(year, month, i);
+      const dateKey = formatDateKey(d);
+      cells.push({
+        dateKey,
+        dayNum: i,
+        isCurrentMonth: true,
+        isToday: dateKey === todayStr,
+        isSelected: dateKey === selectedDate,
+        eventCount: events[dateKey]?.length || 0,
+        targetDate: d,
+      });
+    }
+
+    // Trailing days
+    const totalCells = cells.length <= 35 ? 35 : 42;
+    const remainingDays = totalCells - cells.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      const d = new Date(year, month + 1, i);
+      const dateKey = formatDateKey(d);
+      cells.push({
+        dateKey,
+        dayNum: i,
+        isCurrentMonth: false,
+        isToday: dateKey === todayStr,
+        isSelected: dateKey === selectedDate,
+        eventCount: events[dateKey]?.length || 0,
+        targetDate: d,
+      });
+    }
+
+    return cells;
+  }, [year, month, todayStr, selectedDate, events]);
+
+  const monthEventCount = useMemo(() => {
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    return Object.keys(events).reduce((acc, dateKey) => {
+      if (dateKey.startsWith(monthPrefix)) {
+        return acc + (events[dateKey]?.length || 0);
+      }
+      return acc;
+    }, 0);
+  }, [events, year, month]);
+
+  const currentYearNow = new Date().getFullYear();
+  const yearOptions = useMemo(() => {
+    const yrs: number[] = [];
+    for (let y = currentYearNow - 3; y <= currentYearNow + 4; y++) {
+      yrs.push(y);
+    }
+    return yrs;
+  }, [currentYearNow]);
 
   return (
-    <div className="calendar-widget-container glass-card">
-      <div className="calendar-widget-header">
-        <motion.div
-          key={currentMonthYear}
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="calendar-month-title"
-        >
-          {currentMonthYear}
-        </motion.div>
-      </div>
+    <div className="full-calendar-container glass-card">
+      <div className="full-calendar-header">
+        <div className="calendar-title-group">
+          <div className="calendar-selectors">
+            <select
+              value={month}
+              onChange={(e) => handleMonthChange(parseInt(e.target.value))}
+              className="calendar-select month-select"
+              aria-label="Select month"
+            >
+              {MONTH_NAMES.map((mName, idx) => (
+                <option key={mName} value={idx}>
+                  {mName}
+                </option>
+              ))}
+            </select>
 
-      <div className="calendar-scroller-relative">
-        <div ref={scrollRef} className="calendar-dates-scroller scrollbar-hide">
-          {dates.map((date) => {
-            const isSelected = selectedDate === date.fullDate;
-            const hasEvent = events[date.fullDate]?.length > 0;
+            <select
+              value={year}
+              onChange={(e) => handleYearChange(parseInt(e.target.value))}
+              className="calendar-select year-select"
+              aria-label="Select year"
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            return (
-              <div key={date.fullDate} className="calendar-date-column">
-                <span className={`calendar-day-name ${isSelected ? 'selected' : ''}`}>
-                  {date.dayName}
-                </span>
+          {monthEventCount > 0 && (
+            <span className="month-event-pill">
+              {monthEventCount} {monthEventCount === 1 ? 'event' : 'events'}
+            </span>
+          )}
+        </div>
 
-                <motion.div
-                  className="calendar-day-bubble-wrapper"
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => onDateSelect(date.fullDate)}
-                >
-                  <div className="calendar-day-bubble-inner">
-                    {isSelected && (
-                      <motion.div
-                        layoutId="selected-date-glow"
-                        transition={{
-                          type: 'spring',
-                          stiffness: 200,
-                          damping: 20,
-                        }}
-                        className="calendar-selected-bg"
-                      />
-                    )}
-                    <span className={`calendar-day-number ${isSelected ? 'selected' : ''}`}>
-                      {date.day}
-                    </span>
-                  </div>
+        <div className="calendar-controls">
+          <button
+            type="button"
+            onClick={handleToday}
+            className="calendar-today-btn"
+            title="Jump to today"
+          >
+            <RotateCcw size={13} style={{ marginRight: '4px' }} />
+            Today
+          </button>
 
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    {hasEvent && !isSelected && (
-                      <motion.span
-                        initial={{ opacity: 0, scale: 0 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="calendar-event-dot"
-                      />
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              </div>
-            );
-          })}
+          <button
+            type="button"
+            onClick={handlePrevMonth}
+            className="calendar-nav-btn"
+            title="Previous month"
+            aria-label="Previous month"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNextMonth}
+            className="calendar-nav-btn"
+            title="Next month"
+            aria-label="Next month"
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
 
+      <div className="calendar-weekdays-grid">
+        {WEEKDAYS.map((wd) => (
+          <div key={wd} className="calendar-weekday-cell">
+            {wd}
+          </div>
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={`${year}-${month}`}
+          initial={{ opacity: 0, x: slideDirection * 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -slideDirection * 20 }}
+          transition={{ duration: 0.18, ease: 'easeInOut' }}
+          className="calendar-days-grid"
+        >
+          {calendarGrid.map((cell) => {
+            const hasEvent = cell.eventCount > 0;
+
+            return (
+              <button
+                key={cell.dateKey}
+                type="button"
+                onClick={() => {
+                  if (!cell.isCurrentMonth) {
+                    setViewDate(new Date(cell.targetDate.getFullYear(), cell.targetDate.getMonth(), 1));
+                  }
+                  onDateSelect(cell.dateKey);
+                }}
+                className={`calendar-day-cell ${cell.isCurrentMonth ? 'in-month' : 'out-month'} ${
+                  cell.isSelected ? 'selected' : ''
+                } ${cell.isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}`}
+                title={`${cell.dateKey}${hasEvent ? ` (${cell.eventCount} event${cell.eventCount > 1 ? 's' : ''})` : ''}`}
+              >
+                <span className="calendar-day-text">{cell.dayNum}</span>
+
+                {hasEvent && (
+                  <div className="calendar-event-indicators">
+                    {Array.from({ length: Math.min(cell.eventCount, 3) }).map((_, i) => (
+                      <span key={i} className="event-dot" />
+                    ))}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </motion.div>
+      </AnimatePresence>
+
       <style>{`
-        .calendar-widget-container {
+        .full-calendar-container {
           width: 100%;
-          border-radius: 24px;
-          padding: 16px;
-          margin-bottom: 20px;
-          user-select: none;
-          -webkit-user-select: none;
+          border-radius: 20px;
+          padding: 16px 18px 20px;
+          margin-bottom: 24px;
           box-shadow: var(--shadow-premium);
+          border: 1px solid var(--border-light);
+          background: var(--bg-glass);
+          backdrop-filter: blur(16px);
         }
 
-        .calendar-widget-header {
+        .full-calendar-header {
           display: flex;
           align-items: center;
-          margin-bottom: 12px;
-          padding-left: 8px;
-        }
-
-        .calendar-month-title {
-          font-family: var(--font-space-grotesk);
-          font-size: 18px;
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-
-        .calendar-scroller-relative {
-          position: relative;
-          width: 100%;
-          overflow: hidden;
-        }
-
-        .calendar-dates-scroller {
-          display: flex;
+          justify-content: space-between;
+          margin-bottom: 16px;
           gap: 12px;
-          overflow-x: auto;
-          padding: 4px 8px 8px 8px;
-          scroll-behavior: smooth;
-          scrollbar-width: none; /* Firefox */
-          -ms-overflow-style: none; /* IE 10+ */
+          flex-wrap: wrap;
         }
 
-        .calendar-dates-scroller::-webkit-scrollbar {
-          display: none; /* Chrome, Safari, Opera */
-        }
-
-        .calendar-date-column {
+        .calendar-title-group {
           display: flex;
-          flex-direction: column;
           align-items: center;
-          min-width: 42px;
-          flex-shrink: 0;
+          gap: 10px;
+          flex-wrap: wrap;
         }
 
-        .calendar-day-name {
-          font-size: 11px;
+        .calendar-selectors {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .calendar-select {
+          background: rgba(255, 255, 255, 0.07);
+          color: var(--text-primary);
+          border: 1px solid var(--border-light);
+          border-radius: 12px;
+          padding: 6px 10px;
+          font-family: var(--font-space-grotesk);
+          font-size: 16px;
           font-weight: 700;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          margin-bottom: 6px;
-          transition: color 0.2s ease;
-        }
-
-        .calendar-day-name.selected {
-          color: rgb(22, 192, 122);
-        }
-
-        .calendar-day-bubble-wrapper {
-          position: relative;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
           cursor: pointer;
-          width: 40px;
+          outline: none;
+          transition: all 0.2s ease;
         }
 
-        .calendar-day-bubble-inner {
-          position: relative;
-          width: 40px;
-          height: 40px;
+        .calendar-select:hover {
+          border-color: rgba(var(--secondary-neon), 0.5);
+          background: rgba(255, 255, 255, 0.12);
+        }
+
+        .calendar-select option {
+          background: var(--bg-secondary, #1e1e1e);
+          color: var(--text-primary, #fff);
+          font-family: var(--font-inter);
+          font-size: 14px;
+        }
+
+        .month-event-pill {
+          font-size: 11px;
+          font-weight: 600;
+          color: rgb(22, 192, 122);
+          background: rgba(22, 192, 122, 0.12);
+          border: 1px solid rgba(22, 192, 122, 0.25);
+          padding: 4px 10px;
+          border-radius: 100px;
+          letter-spacing: 0.3px;
+        }
+
+        .calendar-controls {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .calendar-today-btn {
+          display: flex;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--text-secondary);
+          border: 1px solid var(--border-light);
+          padding: 6px 12px;
+          border-radius: 10px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .calendar-today-btn:hover {
+          color: var(--text-primary);
+          background: rgba(var(--secondary-neon), 0.15);
+          border-color: rgba(var(--secondary-neon), 0.4);
+        }
+
+        .calendar-nav-btn {
           display: flex;
           align-items: center;
           justify-content: center;
-          border-radius: 50%;
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.06);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+          cursor: pointer;
+          transition: all 0.2s ease;
         }
 
-        .calendar-selected-bg {
-          position: absolute;
-          inset: 0;
+        .calendar-nav-btn:hover {
+          background: rgba(var(--secondary-neon), 0.2);
+          border-color: rgba(var(--secondary-neon), 0.5);
+          transform: translateY(-1px);
+        }
+
+        .calendar-weekdays-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 6px;
+          margin-bottom: 8px;
+          text-align: center;
+        }
+
+        .calendar-weekday-cell {
+          font-size: 12px;
+          font-weight: 700;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          padding: 4px 0;
+        }
+
+        .calendar-days-grid {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 6px;
+        }
+
+        .calendar-day-cell {
+          position: relative;
+          aspect-ratio: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          border-radius: 14px;
+          border: 1px solid transparent;
+          background: transparent;
+          cursor: pointer;
+          transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+          padding: 4px;
+          user-select: none;
+        }
+
+        .calendar-day-cell.in-month {
+          color: var(--text-primary);
+        }
+
+        .calendar-day-cell.out-month {
+          color: var(--text-muted);
+          opacity: 0.35;
+        }
+
+        .calendar-day-cell:hover {
+          background: rgba(255, 255, 255, 0.08);
+          border-color: rgba(var(--secondary-neon), 0.25);
+          transform: translateY(-1px);
+        }
+
+        .calendar-day-cell.today {
+          border-color: rgba(var(--secondary-neon), 0.5);
+          background: rgba(var(--secondary-neon), 0.08);
+        }
+
+        .calendar-day-cell.today .calendar-day-text {
+          color: rgb(var(--secondary-neon));
+          font-weight: 800;
+        }
+
+        .calendar-day-cell.selected {
+          background: linear-gradient(135deg, rgba(22, 192, 122, 0.95), rgba(16, 150, 95, 0.9)) !important;
+          color: #ffffff !important;
+          border-color: rgba(22, 192, 122, 0.8) !important;
+          box-shadow: 0 4px 14px rgba(22, 192, 122, 0.45);
+          transform: scale(1.04);
+        }
+
+        .calendar-day-cell.selected .calendar-day-text {
+          color: #ffffff !important;
+          font-weight: 800;
+        }
+
+        .calendar-day-cell.selected .event-dot {
+          background: #ffffff !important;
+        }
+
+        .calendar-day-text {
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1;
+        }
+
+        .calendar-event-indicators {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+          margin-top: 4px;
+          height: 4px;
+        }
+
+        .event-dot {
+          width: 4px;
+          height: 4px;
           border-radius: 50%;
           background: rgb(22, 192, 122);
-          box-shadow: 0 4px 12px rgba(22, 192, 122, 0.35);
+          box-shadow: 0 0 4px rgba(22, 192, 122, 0.6);
         }
 
-        .calendar-day-number {
-          position: relative;
-          z-index: 2;
-          font-family: var(--font-space-grotesk);
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--text-primary);
-          transition: color 0.2s ease;
-        }
-
-        .calendar-day-number.selected {
-          color: #ffffff !important;
-        }
-
-        .calendar-event-dot {
-          display: block;
-          width: 5px;
-          height: 5px;
-          background-color: rgb(22, 192, 122);
-          border-radius: 50%;
-          margin-top: 4px;
-          will-change: transform;
+        @media (max-width: 640px) {
+          .full-calendar-container {
+            padding: 12px;
+          }
+          .calendar-select {
+            font-size: 14px;
+            padding: 4px 8px;
+          }
+          .calendar-day-cell {
+            border-radius: 10px;
+          }
+          .calendar-day-text {
+            font-size: 12px;
+          }
+          .calendar-weekday-cell {
+            font-size: 10px;
+          }
         }
       `}</style>
     </div>
