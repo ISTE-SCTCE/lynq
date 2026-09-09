@@ -1,0 +1,12 @@
+{
+  "name": "lynq",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "vercel-build": "npm install --prefix lynq-site --legacy-peer-deps && npm run build --prefix lynq-site",
+    "build": "npm install --prefix lynq-site --legacy-peer-deps && npm run build --prefix lynq-site"
+  },
+  "devDependencies": {
+    "next": "^15.0.0"
+  }
+}

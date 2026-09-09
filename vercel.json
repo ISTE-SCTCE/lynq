@@ -1,0 +1,11 @@
+{
+  "framework": null,
+  "buildCommand": "npm install --prefix lynq-site --legacy-peer-deps && npm run build --prefix lynq-site",
+  "outputDirectory": "lynq-site/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
+  ]
+}
