@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, RefreshCw, Upload, Check, AlertTriangle, Play, Sparkles, 
   Loader, Image as ImageIcon, FolderArchive, FileText, CheckCircle2, 
-  XCircle, ExternalLink, Award
+  XCircle, ExternalLink, Award, ShieldCheck, Eye, X, CheckCircle, Search
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { supabase } from '../../core/supabase-client';
@@ -46,6 +46,29 @@ interface ManualAttendanceRecord {
   matchScore: number;
 }
 
+interface PublishResultItem {
+  student: string;
+  file: string;
+  url?: string;
+}
+
+interface PublishFailItem {
+  student: string;
+  file: string;
+  error: string;
+}
+
+interface VerifiedCertRow {
+  id: string | number;
+  user_id: string;
+  student_name?: string;
+  title?: string;
+  file_url?: string;
+  certificate_url?: string;
+  storage_path?: string;
+  issued_at?: string;
+}
+
 export const CertificateIssuanceScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -56,6 +79,23 @@ export const CertificateIssuanceScreen: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [attendees, setAttendees] = useState<Attendee[]>([]);
   const [alreadyIssuedIds, setAlreadyIssuedIds] = useState<Set<string>>(new Set());
+  const [verifiedCertificates, setVerifiedCertificates] = useState<VerifiedCertRow[]>([]);
+  const [activeTabSection, setActiveTabSection] = useState<'workspace' | 'verified'>('workspace');
+  const [verifiedSearchQuery, setVerifiedSearchQuery] = useState('');
+
+  // Confirmation and Results Modals
+  const [publishResultModal, setPublishResultModal] = useState<{
+    isOpen: boolean;
+    successItems: PublishResultItem[];
+    failedItems: PublishFailItem[];
+  } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    recipients: Array<{ student: string; file: string }>;
+    onConfirm: () => void;
+  } | null>(null);
 
   // Publish Mode: 'automated' (Google Slides) vs 'manual' (Google Drive / Files)
   const [publishMode, setPublishMode] = useState<'automated' | 'manual'>('automated');
@@ -167,12 +207,14 @@ export const CertificateIssuanceScreen: React.FC = () => {
       // 4. Fetch already issued certificates
       const { data: issuedRows, error: cErr } = await supabase
         .from('certificates')
-        .select('user_id, title')
-        .eq('event_id', parseInt(id));
+        .select('*')
+        .eq('event_id', parseInt(id))
+        .order('issued_at', { ascending: false });
 
       if (cErr) throw cErr;
       const issuedSet = new Set((issuedRows || []).map(r => r.user_id));
       setAlreadyIssuedIds(issuedSet);
+      setVerifiedCertificates((issuedRows || []) as VerifiedCertRow[]);
       if (issuedRows && issuedRows.length > 0) {
         for (const r of issuedRows) {
           if (r.title) {
@@ -429,6 +471,16 @@ export const CertificateIssuanceScreen: React.FC = () => {
   const pendingMatchedCount = matches.filter(m => m.matchedFile !== null && !alreadyIssuedIds.has(m.attendee.user_id)).length;
   const fileMatchedCount = fileMatches.filter(m => m.matchedUser !== null).length;
   const pendingFileMatchedCount = fileMatches.filter(m => m.matchedUser !== null && !alreadyIssuedIds.has(m.matchedUser.user_id)).length;
+
+  const filteredVerifiedCertificates = useMemo(() => {
+    if (!verifiedSearchQuery.trim()) return verifiedCertificates;
+    const q = verifiedSearchQuery.toLowerCase();
+    return verifiedCertificates.filter(c => 
+      (c.student_name && c.student_name.toLowerCase().includes(q)) ||
+      (c.title && c.title.toLowerCase().includes(q)) ||
+      c.user_id.toLowerCase().includes(q)
+    );
+  }, [verifiedCertificates, verifiedSearchQuery]);
 
   // ── Manual Attendance List Matching Engine ──
   const calculatedManualAttendanceRecords = useMemo(() => {
@@ -918,24 +970,38 @@ export const CertificateIssuanceScreen: React.FC = () => {
   };
 
   // Manual Distribution Issuance Pipeline
-  const handlePublishManualCertificates = async () => {
+  const promptPublishManualCertificates = () => {
     const toPublish = matches.filter(m => m.matchedFile !== null && !alreadyIssuedIds.has(m.attendee.user_id));
     if (toPublish.length === 0) {
-      alert('No pending matched certificates to publish. Please upload files or assign certificates.');
+      if (uploadedFiles.length === 0) {
+        alert('Please upload certificate files or a .ZIP archive first.');
+      } else {
+        alert('No pending matched certificates to publish. Attendees may have already received certificates, or no files matched.');
+      }
       return;
     }
 
-    const confirmed = window.confirm(
-      `Ready to publish ${toPublish.length} matched certificate(s) to Supabase Storage & Database? Proceed?`
-    );
-    if (!confirmed) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Publish Manual Certificates',
+      description: `Ready to upload and publish certificates for ${toPublish.length} matched event attendee(s)?`,
+      recipients: toPublish.map(m => ({ student: m.attendee.name, file: m.matchedFile!.name })),
+      onConfirm: () => {
+        setConfirmModal(null);
+        executePublishManualCertificates(toPublish);
+      }
+    });
+  };
 
+  const executePublishManualCertificates = async (toPublish: typeof matches) => {
     setIsProcessing(true);
     setProcessedCount(0);
     setLastSuccessCount(null);
 
     let successCount = 0;
     const total = toPublish.length;
+    const successItems: PublishResultItem[] = [];
+    const failedItems: PublishFailItem[] = [];
 
     try {
       for (let i = 0; i < toPublish.length; i++) {
@@ -950,7 +1016,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
         
         let filePayload: any = matchedFile.file;
         if (!filePayload && matchedFile.data) {
-          filePayload = matchedFile.data;
+          filePayload = new Blob([matchedFile.data as any], { type: matchedFile.type || 'application/pdf' });
         }
 
         // Upload to Supabase Storage 'certificates' bucket
@@ -963,6 +1029,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
         if (uploadError) {
           console.error(`Upload failed for ${attendee.name}:`, uploadError);
+          failedItems.push({
+            student: attendee.name,
+            file: matchedFile.name,
+            error: `Storage upload failed: ${uploadError.message || 'Permission or storage error'}`,
+          });
           continue;
         }
 
@@ -990,11 +1061,21 @@ export const CertificateIssuanceScreen: React.FC = () => {
         if (!certError) {
           successCount++;
           setProcessedCount(i + 1);
+          successItems.push({
+            student: attendee.name,
+            file: matchedFile.name,
+            url: fileUrl,
+          });
         } else {
           console.error(`Certificate DB record creation failed for ${attendee.name}:`, certError);
+          failedItems.push({
+            student: attendee.name,
+            file: matchedFile.name,
+            error: `Database save failed: ${certError.message || 'Database error'}`,
+          });
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error during manual certificate publication:', err);
     }
 
@@ -1002,28 +1083,46 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setIsProcessing(false);
     setProgressMessage('');
     setLastSuccessCount(successCount);
-    alert(`Successfully published ${successCount} certificate(s) via manual file distribution.`);
+    setPublishResultModal({
+      isOpen: true,
+      successItems,
+      failedItems,
+    });
   };
 
   // Publish without Attendance List Issuance Pipeline (Match against all m-Lynq users)
-  const handlePublishWithoutAttendance = async () => {
+  const promptPublishWithoutAttendance = () => {
     const toPublish = fileMatches.filter(m => m.matchedUser !== null && !alreadyIssuedIds.has(m.matchedUser.user_id));
     if (toPublish.length === 0) {
-      alert('No pending matched certificates to publish. Please upload files or manually assign m-Lynq users.');
+      if (uploadedFiles.length === 0) {
+        alert('Please upload your certificate files or a .ZIP archive first.');
+      } else {
+        alert('No pending matched certificates to publish. Make sure student names match, or manually assign users from the table.');
+      }
       return;
     }
 
-    const confirmed = window.confirm(
-      `Ready to publish ${toPublish.length} matched certificate(s) directly to registered m-Lynq users? (No prior attendance list required)`
-    );
-    if (!confirmed) return;
+    setConfirmModal({
+      isOpen: true,
+      title: 'Publish Certificates to m-Lynq',
+      description: `Ready to issue and send certificates directly to ${toPublish.length} matched m-Lynq user(s)? Each student will receive their certificate in their app account immediately.`,
+      recipients: toPublish.map(m => ({ student: m.matchedUser!.name, file: m.file.name })),
+      onConfirm: () => {
+        setConfirmModal(null);
+        executePublishWithoutAttendance(toPublish);
+      }
+    });
+  };
 
+  const executePublishWithoutAttendance = async (toPublish: typeof fileMatches) => {
     setIsProcessing(true);
     setProcessedCount(0);
     setLastSuccessCount(null);
 
     let successCount = 0;
     const total = toPublish.length;
+    const successItems: PublishResultItem[] = [];
+    const failedItems: PublishFailItem[] = [];
 
     try {
       for (let i = 0; i < toPublish.length; i++) {
@@ -1031,14 +1130,14 @@ export const CertificateIssuanceScreen: React.FC = () => {
         const { matchedUser, file } = item;
         if (!matchedUser) continue;
 
-        setProgressMessage(`Uploading certificate for ${matchedUser.name} (${i + 1}/${total})...`);
+        setProgressMessage(`Publishing for ${matchedUser.name} (${i + 1}/${total})...`);
 
         const ext = file.name.split('.').pop() || 'pdf';
         const storagePath = `${id}/${matchedUser.user_id}.${ext}`;
         
         let filePayload: any = file.file;
         if (!filePayload && file.data) {
-          filePayload = file.data;
+          filePayload = new Blob([file.data as any], { type: file.type || 'application/pdf' });
         }
 
         const { error: uploadError } = await supabase.storage
@@ -1050,6 +1149,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
 
         if (uploadError) {
           console.error(`Upload failed for ${matchedUser.name}:`, uploadError);
+          failedItems.push({
+            student: matchedUser.name,
+            file: file.name,
+            error: `Storage upload failed: ${uploadError.message || 'Permission or storage error'}`,
+          });
           continue;
         }
 
@@ -1083,11 +1187,21 @@ export const CertificateIssuanceScreen: React.FC = () => {
         if (!certError) {
           successCount++;
           setProcessedCount(i + 1);
+          successItems.push({
+            student: matchedUser.name,
+            file: file.name,
+            url: fileUrl,
+          });
         } else {
           console.error(`Certificate DB record creation failed for ${matchedUser.name}:`, certError);
+          failedItems.push({
+            student: matchedUser.name,
+            file: file.name,
+            error: `Database save failed: ${certError.message || 'Database error'}`,
+          });
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error during non-attendance certificate publication:', err);
     }
 
@@ -1095,7 +1209,11 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setIsProcessing(false);
     setProgressMessage('');
     setLastSuccessCount(successCount);
-    alert(`Successfully published ${successCount} certificate(s) to m-Lynq users!`);
+    setPublishResultModal({
+      isOpen: true,
+      successItems,
+      failedItems,
+    });
   };
 
   if (!currentUser) return null;
@@ -1195,8 +1313,162 @@ export const CertificateIssuanceScreen: React.FC = () => {
             />
           </GlassCard>
 
-          {/* Mode Selector Segmented Tabs */}
-          <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', padding: '4px', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
+          {/* Main Navigation Switch: Workspace vs Verified Database */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button
+              onClick={() => setActiveTabSection('workspace')}
+              style={{
+                flex: 1,
+                padding: '12px 16px',
+                borderRadius: '12px',
+                border: activeTabSection === 'workspace' ? '1px solid rgb(22, 192, 122)' : '1px solid var(--border-light)',
+                background: activeTabSection === 'workspace' ? 'rgba(22, 192, 122, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                color: activeTabSection === 'workspace' ? 'rgb(22, 192, 122)' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: '0.2s'
+              }}
+            >
+              <Upload size={16} /> Certificate Upload & Issuance
+            </button>
+            <button
+              onClick={() => {
+                setActiveTabSection('verified');
+                loadStats();
+              }}
+              style={{
+                flex: 1,
+                padding: '12px 16px',
+                borderRadius: '12px',
+                border: activeTabSection === 'verified' ? '1px solid #3b82f6' : '1px solid var(--border-light)',
+                background: activeTabSection === 'verified' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                color: activeTabSection === 'verified' ? '#3b82f6' : 'var(--text-secondary)',
+                fontWeight: 700,
+                fontSize: '14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: '0.2s'
+              }}
+            >
+              <ShieldCheck size={16} /> Verified Database Records ({verifiedCertificates.length})
+            </button>
+          </div>
+
+          {activeTabSection === 'verified' ? (
+            <GlassCard padding="20px">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+                <div>
+                  <h3 style={{ fontFamily: 'var(--font-space-grotesk)', fontWeight: 700, fontSize: '16px', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShieldCheck size={18} style={{ color: 'rgb(22, 192, 122)' }} /> Verified Live Certificates
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Accurate, live records fetched directly from the Supabase database. These certificates are active in students' m-Lynq apps.
+                  </p>
+                </div>
+                <button
+                  onClick={loadStats}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    padding: '8px 14px', borderRadius: '10px',
+                    background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-light)',
+                    color: 'var(--text-primary)', fontSize: '12px', fontWeight: 600, cursor: 'pointer'
+                  }}
+                >
+                  <RefreshCw size={13} /> Re-verify Database
+                </button>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <input
+                  type="text"
+                  placeholder="Search by student name or certificate title..."
+                  value={verifiedSearchQuery}
+                  onChange={(e) => setVerifiedSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%', padding: '10px 14px',
+                    background: 'rgba(255, 255, 255, 0.04)', border: '1px solid var(--border-light)',
+                    borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', outline: 'none'
+                  }}
+                />
+              </div>
+
+              {filteredVerifiedCertificates.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', borderRadius: '12px', border: '1px dashed var(--border-light)', background: 'rgba(255,255,255,0.01)' }}>
+                  <ShieldCheck size={32} style={{ color: 'var(--text-muted)', margin: '0 auto 10px auto', display: 'block' }} />
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                    {verifiedCertificates.length === 0 ? 'No certificates issued yet' : 'No matching certificates found'}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    {verifiedCertificates.length === 0 
+                      ? 'Upload certificates or run automated generation to publish certificates.'
+                      : 'Try a different search query.'}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: '420px', overflowY: 'auto', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255, 255, 255, 0.05)', textAlign: 'left', borderBottom: '1px solid var(--border-light)' }}>
+                        <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>#</th>
+                        <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Student Name</th>
+                        <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Certificate Title</th>
+                        <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Issued Date</th>
+                        <th style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>Verification</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredVerifiedCertificates.map((cert, idx) => (
+                        <tr key={cert.id || cert.user_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                          <td style={{ padding: '10px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {cert.student_name || 'Student'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-secondary)' }}>
+                            {cert.title || 'Certificate'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: '11px' }}>
+                            {cert.issued_at ? new Date(cert.issued_at).toLocaleString() : 'Recently'}
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            {(cert.file_url || cert.certificate_url) ? (
+                              <a
+                                href={cert.file_url || cert.certificate_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                  padding: '4px 8px', borderRadius: '6px',
+                                  background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6',
+                                  textDecoration: 'none', fontSize: '11px', fontWeight: 600
+                                }}
+                              >
+                                <ExternalLink size={12} /> View PDF
+                              </a>
+                            ) : (
+                              <span style={{ color: 'rgb(22, 192, 122)', fontSize: '11px', fontWeight: 600 }}>
+                                <CheckCircle size={12} /> Active in DB
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </GlassCard>
+          ) : (
+            <>
+              {/* Mode Selector Segmented Tabs */}
+              <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.05)', padding: '4px', borderRadius: '14px', border: '1px solid var(--border-light)' }}>
             <button
               onClick={() => setPublishMode('automated')}
               style={{
@@ -1863,7 +2135,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
               )
             ) : publishWithoutAttendance ? (
               <button
-                onClick={handlePublishWithoutAttendance}
+                onClick={promptPublishWithoutAttendance}
                 disabled={pendingFileMatchedCount === 0 || isProcessing}
                 style={{
                   width: '100%',
@@ -1886,7 +2158,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
               </button>
             ) : (
               <button
-                onClick={handlePublishManualCertificates}
+                onClick={promptPublishManualCertificates}
                 disabled={pendingMatchedCount === 0 || isProcessing}
                 style={{
                   width: '100%',
@@ -1908,6 +2180,169 @@ export const CertificateIssuanceScreen: React.FC = () => {
                 <Play size={18} /> Publish {pendingMatchedCount} Matched Certificates (Manual Distribution)
               </button>
             )}
+          </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal && confirmModal.isOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-light)',
+            borderRadius: '16px', maxWidth: '520px', width: '100%', padding: '24px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Sparkles size={20} style={{ color: 'rgb(22, 192, 122)' }} /> {confirmModal.title}
+              </h3>
+              <button onClick={() => setConfirmModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {confirmModal.description}
+            </p>
+
+            <div style={{ maxHeight: '180px', overflowY: 'auto', borderRadius: '10px', border: '1px solid var(--border-light)', padding: '8px 12px', background: 'rgba(255,255,255,0.02)' }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                Target Recipients ({confirmModal.recipients.length}):
+              </div>
+              {confirmModal.recipients.map((r, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: idx < confirmModal.recipients.length - 1 ? '1px solid var(--border-light)' : 'none', fontSize: '12px' }}>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r.student}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{r.file}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+              <button
+                onClick={() => setConfirmModal(null)}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid var(--border-light)', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmModal.onConfirm}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgb(22, 192, 122)', color: '#000', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Confirm & Publish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Results & Verification Modal */}
+      {publishResultModal && publishResultModal.isOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-light)',
+            borderRadius: '18px', maxWidth: '560px', width: '100%', padding: '24px',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column', gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {publishResultModal.failedItems.length === 0 ? (
+                  <CheckCircle size={22} style={{ color: 'rgb(22, 192, 122)' }} />
+                ) : publishResultModal.successItems.length > 0 ? (
+                  <AlertTriangle size={22} style={{ color: '#f59e0b' }} />
+                ) : (
+                  <XCircle size={22} style={{ color: '#ef4444' }} />
+                )}
+                Certificate Issuance Report
+              </h3>
+              <button onClick={() => setPublishResultModal(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Summary Banner */}
+            <div style={{
+              padding: '14px', borderRadius: '12px',
+              background: publishResultModal.failedItems.length === 0 ? 'rgba(22, 192, 122, 0.12)' : publishResultModal.successItems.length > 0 ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              border: `1px solid ${publishResultModal.failedItems.length === 0 ? 'rgba(22, 192, 122, 0.4)' : publishResultModal.successItems.length > 0 ? 'rgba(245, 158, 11, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`
+            }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                {publishResultModal.failedItems.length === 0 
+                  ? `✅ Confirmed: All ${publishResultModal.successItems.length} Certificates Published Successfully!`
+                  : `${publishResultModal.successItems.length} Succeeded, ${publishResultModal.failedItems.length} Failed`}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Certificates are uploaded to Supabase Storage and registered directly in the student database.
+              </div>
+            </div>
+
+            {/* Success List */}
+            {publishResultModal.successItems.length > 0 && (
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgb(22, 192, 122)', marginBottom: '6px' }}>
+                  Verified Active in Database ({publishResultModal.successItems.length}):
+                </div>
+                <div style={{ maxHeight: '160px', overflowY: 'auto', borderRadius: '10px', border: '1px solid var(--border-light)', padding: '6px 12px', background: 'rgba(255,255,255,0.02)' }}>
+                  {publishResultModal.successItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderBottom: idx < publishResultModal.successItems.length - 1 ? '1px solid var(--border-light)' : 'none', fontSize: '12px' }}>
+                      <div>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.student}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '11px', marginLeft: '6px' }}>({item.file})</span>
+                      </div>
+                      {item.url && (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#3b82f6', textDecoration: 'none', fontSize: '11px', fontWeight: 600 }}>
+                          <ExternalLink size={12} /> View PDF
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Failed List */}
+            {publishResultModal.failedItems.length > 0 && (
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#ef4444', marginBottom: '6px' }}>
+                  Failed Uploads ({publishResultModal.failedItems.length}):
+                </div>
+                <div style={{ maxHeight: '140px', overflowY: 'auto', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '6px 12px', background: 'rgba(239, 68, 68, 0.05)' }}>
+                  {publishResultModal.failedItems.map((item, idx) => (
+                    <div key={idx} style={{ padding: '6px 0', borderBottom: idx < publishResultModal.failedItems.length - 1 ? '1px solid rgba(239, 68, 68, 0.2)' : 'none', fontSize: '12px' }}>
+                      <div style={{ fontWeight: 600, color: '#ef4444' }}>{item.student} ({item.file})</div>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '2px' }}>{item.error}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+              <button
+                onClick={() => {
+                  setPublishResultModal(null);
+                  setActiveTabSection('verified');
+                }}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid #3b82f6', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+              >
+                <ShieldCheck size={16} /> View Verified Database Records
+              </button>
+              <button
+                onClick={() => setPublishResultModal(null)}
+                style={{ padding: '12px 24px', borderRadius: '10px', border: 'none', background: 'var(--text-primary)', color: 'var(--bg-card)', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
