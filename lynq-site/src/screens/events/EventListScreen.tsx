@@ -236,6 +236,12 @@ export const EventListScreen: React.FC = () => {
                   if (!canManage) return null;
                   return (
                     <div className="event-action-buttons-row">
+                      <button
+                        onClick={() => navigate(`/scan?eventId=${event.id}&dayNumber=1`)}
+                        className="event-action-btn attendance"
+                      >
+                        <Users size={14} /> Scan Attendance
+                      </button>
                       <button 
                         onClick={() => navigate(`/events/${event.id}/publish`)}
                         className="event-action-btn publish"
@@ -498,13 +504,14 @@ export const EventListScreen: React.FC = () => {
 
         .event-action-buttons-row {
           display: flex;
+          flex-wrap: wrap;
           gap: 10px;
           margin-top: 16px;
           width: 100%;
         }
 
         .event-action-btn {
-          flex: 1;
+          flex: 1 1 120px;
           padding: 10px;
           border-radius: 10px;
           font-family: var(--font-space-grotesk);

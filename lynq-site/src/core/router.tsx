@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from './auth-provider';
@@ -17,13 +17,13 @@ import { AddMemberScreen } from '../screens/members/AddMemberScreen';
 import { ExecomListScreen } from '../screens/members/ExecomListScreen';
 import { EventListScreen } from '../screens/events/EventListScreen';
 import { EventFormScreen } from '../screens/events/EventFormScreen';
-import { CertificateIssuanceScreen } from '../screens/events/CertificateIssuanceScreen';
+const CertificateIssuanceScreen = lazy(() => import('../screens/events/CertificateIssuanceScreen').then(module => ({ default: module.CertificateIssuanceScreen })));
 import { AttendanceReportScreen } from '../screens/events/AttendanceReportScreen';
 import { BudgetOverviewScreen } from '../screens/budget/BudgetOverviewScreen';
 import { BudgetRequestScreen } from '../screens/budget/BudgetRequestScreen';
 import { ReportListScreen } from '../screens/reports/ReportListScreen';
 import { ReportUploadScreen } from '../screens/reports/ReportUploadScreen';
-import MentronDashboardScreen from '../screens/mentron/MentronDashboardScreen';
+const MentronDashboardScreen = lazy(() => import('../screens/mentron/MentronDashboardScreen'));
 import { AnnouncementScreen } from '../screens/announcements/AnnouncementScreen';
 import { ChatListScreen } from '../screens/chat/ChatListScreen';
 import { ChatScreen } from '../screens/chat/ChatScreen';
@@ -34,7 +34,7 @@ import { TaskListScreen } from '../screens/tasks/TaskListScreen';
 import { TaskCreateScreen } from '../screens/tasks/TaskCreateScreen';
 import { TaskDetailScreen } from '../screens/tasks/TaskDetailScreen';
 import { SubtaskDetailScreen } from '../screens/tasks/SubtaskDetailScreen';
-import { QrScannerScreen } from '../screens/scan/QrScannerScreen';
+const QrScannerScreen = lazy(() => import('../screens/scan/QrScannerScreen').then(module => ({ default: module.QrScannerScreen })));
 import { RegistrationQueueScreen } from '../screens/registrations/RegistrationQueueScreen';
 
 const ProtectedLayout: React.FC = () => {
@@ -60,7 +60,7 @@ const ProtectedLayout: React.FC = () => {
           transition={{ type: 'spring', stiffness: 450, damping: 30 }}
           style={{ width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}
         >
-          <Outlet />
+          <Suspense fallback={<p role="status" style={{ padding: 32 }}>Loading workspace…</p>}><Outlet /></Suspense>
         </motion.div>
       </AnimatePresence>
     </div>

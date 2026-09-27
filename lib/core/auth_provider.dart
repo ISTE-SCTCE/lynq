@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
@@ -16,40 +17,30 @@ class AuthProvider extends ChangeNotifier {
   PermissionEngine? _permissionEngine;
   bool _isLoading = true;
   bool _isShowingSplash = true;
-  bool _isLoadingUserData = false; // guard against concurrent loads
+  Future<void>? _pendingLoad;
+  String? _loadingUserId;
+  int _generation = 0;
+  bool _disposed = false;
+  StreamSubscription<AuthState>? _authSubscription;
+  String? _error;
+  String? get error => _error;
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
 
   bool get isLoading => _isLoading;
   User? get authUser => _authUser;
   UserModel? get currentUser => _currentUser;
   PermissionEngine? get permissions => _permissionEngine;
-  AppRole get role {
-    if (_currentUser == null) return AppRole.restricted;
-    final parsed = AppRole.fromString(_currentUser!.role);
-    if (parsed == AppRole.member) {
-      if (_currentUser!.post != null && _currentUser!.post!.trim().isNotEmpty) {
-        final p = _currentUser!.post!.toLowerCase();
-        if (p.contains('chair') && !p.contains('vice')) {
-          if (p.contains('swas') || p.contains('bits') || p.contains('exis') || p.contains('torq') || p.contains('genesis')) {
-            return AppRole.forumExeccom;
-          }
-          return AppRole.chairman;
-        }
-        if (p.contains('vice')) return AppRole.viceChairman;
-        if (p.contains('panel')) return AppRole.panel;
-        return AppRole.coreExeccom;
-      }
-      if (_folderMemberships.isNotEmpty) {
-        return AppRole.forumExeccom;
-      }
-    }
-    return parsed;
-  }
+  // Only backend-provisioned roles determine access, never free-text titles.
+  AppRole get role => AppRole.fromString(_currentUser?.role ?? 'restricted');
   bool get isShowingSplash => _isShowingSplash;
   bool get isAuthenticated => _authUser != null && _currentUser != null;
 
   void hideSplash() {
     _isShowingSplash = false;
-    notifyListeners();
+    _notify();
   }
 
   AuthProvider() {
@@ -61,119 +52,131 @@ class AuthProvider extends ChangeNotifier {
     final session = _supabase.auth.currentSession;
     if (session != null) {
       _authUser = session.user;
-      _loadUserData();
+      unawaited(_loadUserData().catchError((Object _) {}));
     } else {
       _isLoading = false;
-      notifyListeners();
+      _notify();
     }
 
     // Listen for auth state changes
-    _supabase.auth.onAuthStateChange.listen((data) async {
-      final newUser = data.session?.user;
+    _authSubscription = _supabase.auth.onAuthStateChange.listen(
+      (data) {
+        final newUser = data.session?.user;
 
-      if (newUser == null) {
+        if (newUser == null) {
+          _generation++;
+          _pendingLoad = null;
+          _loadingUserId = null;
+          _authUser = null;
+          _currentUser = null;
+          _folderMemberships = [];
+          _folderPermissions = {};
+          _permissionEngine = null;
+          _isLoading = false;
+          AppCache().invalidateAll();
+          _notify();
+          return;
+        }
+
+        _authUser = newUser;
+        // Refresh server-owned access on token refresh as well as sign-in.
+        unawaited(_loadUserData().catchError((Object _) {}));
+      },
+      onError: (Object _) {
+        _generation++;
+        _pendingLoad = null;
+        _loadingUserId = null;
         _authUser = null;
         _currentUser = null;
-        _folderMemberships = [];
-        _folderPermissions = {};
         _permissionEngine = null;
         _isLoading = false;
         AppCache().invalidateAll();
-        notifyListeners();
-        return;
-      }
-
-      // Only reload if the user actually changed — prevents a double-load
-      // when signIn() already calls _loadUserData() before this fires.
-      if (_authUser?.id != newUser.id && !_isLoadingUserData) {
-        _authUser = newUser;
-        await _loadUserData();
-      }
-    });
+        _error = 'Your session could not be refreshed. Please sign in again.';
+        _notify();
+      },
+    );
   }
 
-  Future<void> _loadUserData() async {
-    if (_authUser == null || _isLoadingUserData) {
-      _isLoading = false;
-      notifyListeners();
-      return;
-    }
-    _isLoadingUserData = true;
+  Future<void> _loadUserData() {
+    final userId = _authUser?.id;
+    if (userId == null) return Future<void>.value();
+    if (_pendingLoad != null && _loadingUserId == userId) return _pendingLoad!;
+    final generation = ++_generation;
+    _loadingUserId = userId;
+    _isLoading = true;
+    _currentUser = null;
+    _permissionEngine = null;
+    _error = null;
+    AppCache().invalidateAll();
+    _pendingLoad = _fetchUserData(userId, generation);
+    return _pendingLoad!;
+  }
 
+  Future<void> _fetchUserData(String userId, int generation) async {
+    bool isCurrent() =>
+        !_disposed && generation == _generation && _authUser?.id == userId;
     try {
-      // 1. Fetch user profile with timeout and fallback
+      // Fetch the exact authenticated identity; provisioning is server-owned.
       Map<String, dynamic>? userData = await _supabase
           .from('profiles')
           .select()
-          .eq('id', _authUser!.id)
+          .eq('id', userId)
           .maybeSingle()
           .timeout(const Duration(seconds: 15));
 
-      if (userData == null && _authUser!.email != null && _authUser!.email!.isNotEmpty) {
-        userData = await _supabase
-            .from('profiles')
-            .select()
-            .ilike('email', _authUser!.email!)
-            .maybeSingle()
-            .timeout(const Duration(seconds: 10));
-
-        if (userData != null) {
-          try {
-            await _supabase.from('profiles').update({'id': _authUser!.id}).eq('email', _authUser!.email!);
-            userData['id'] = _authUser!.id;
-          } catch (_) {}
-        }
-      }
-
+      // Never adopt another profile by email or create an Execom account here.
       if (userData == null) {
-        final newProfile = <String, dynamic>{
-          'id': _authUser!.id,
-          'email': _authUser!.email ?? '',
-          'name': (_authUser!.email ?? '').split('@').first,
-          'role': 'core_execcom',
-          'status': 'active',
-        };
-        try {
-          await _supabase.from('profiles').upsert(newProfile);
-          userData = newProfile;
-        } catch (e) {
-          debugPrint('Error auto-creating profile: $e');
-          userData = newProfile;
-        }
+        throw const AuthException(
+          'Your account has no linked profile. Please contact an administrator.',
+        );
       }
+      final profile = UserModel.fromJson(userData);
+      if (userData['status'] != 'active' ||
+          (profile.suspendedUntil?.isAfter(DateTime.now()) ?? false)) {
+        throw const AuthException(
+          'Your account is not active. Please contact an administrator.',
+        );
+      }
+      if (AppRole.fromString(profile.role) == AppRole.restricted) {
+        throw const AuthException(
+          'Your account does not have approved Lynq access.',
+        );
+      }
+      if (!isCurrent()) return;
+      // Data is assigned only once all access queries succeed.
+      List<FolderMemberModel> memberships = [];
+      final folderPermissions = <int, List<FolderPermissionModel>>{};
 
-      _currentUser = UserModel.fromJson(userData);
-
-      // 2. Fetch folder memberships with fallback
+      // Fail closed if access data cannot be loaded; do not invent permissions.
       try {
         final membershipData = await _supabase
             .from('folder_members')
             .select('*, profiles(id, name, email, role, post)')
-            .eq('user_id', _authUser!.id)
+            .eq('user_id', userId)
             .timeout(const Duration(seconds: 15));
-        _folderMemberships = (membershipData as List)
+        memberships = (membershipData as List)
             .map((e) => FolderMemberModel.fromJson(e))
             .toList();
       } catch (e) {
-        debugPrint('Warning fetching folder_members: $e');
-        _folderMemberships = [];
+        rethrow;
       }
 
-      final folderIds = _folderMemberships.map((m) => m.folderId).toList();
-      
+      final folderIds = memberships.map((m) => m.folderId).toList();
+
       final List<Map<String, dynamic>> globalPermData = await _supabase
           .from('global_feature_permissions')
           .select()
-          .timeout(const Duration(seconds: 10))
-          .catchError((_) => <Map<String, dynamic>>[]);
-          
+          .timeout(const Duration(seconds: 10));
+
       final globalPerms = globalPermData
-          .map((e) => FolderPermissionModel(
-                id: 0,
-                folderId: 0,
-                feature: e['feature'] as String,
-                allowed: e['allowed'] as bool,
-              ))
+          .map(
+            (e) => FolderPermissionModel(
+              id: 0,
+              folderId: 0,
+              feature: e['feature'] as String,
+              allowed: e['allowed'] as bool,
+            ),
+          )
           .toList();
 
       try {
@@ -187,18 +190,18 @@ class AuthProvider extends ChangeNotifier {
               .map((e) => FolderPermissionModel.fromJson(e))
               .toList();
 
-          _folderPermissions = {};
           for (final p in allPerms) {
-            _folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
+            folderPermissions.putIfAbsent(p.folderId, () => []).add(p);
           }
-        } else {
-          _folderPermissions = {};
         }
       } catch (e) {
-        debugPrint('Warning fetching folder_permissions: $e');
-        _folderPermissions = {};
+        rethrow;
       }
 
+      if (!isCurrent()) return;
+      _currentUser = profile;
+      _folderMemberships = memberships;
+      _folderPermissions = folderPermissions;
       // 4. Build permission engine
       _permissionEngine = PermissionEngine(
         user: _currentUser!,
@@ -207,14 +210,21 @@ class AuthProvider extends ChangeNotifier {
         globalPermissions: globalPerms,
       );
     } catch (e) {
-      debugPrint('Error loading user data: $e');
-      _currentUser = null;
-      _permissionEngine = null;
+      if (isCurrent()) {
+        _currentUser = null;
+        _permissionEngine = null;
+        _error = e is AuthException
+            ? e.message
+            : 'Unable to load your access details. Please check your connection and try again.';
+      }
       rethrow;
     } finally {
-      _isLoadingUserData = false;
-      _isLoading = false;
-      notifyListeners();
+      if (isCurrent()) {
+        _pendingLoad = null;
+        _loadingUserId = null;
+        _isLoading = false;
+        _notify();
+      }
     }
   }
 
@@ -225,10 +235,15 @@ class AuthProvider extends ChangeNotifier {
   Future<void> signIn(String email, String password) async {
     try {
       final res = await _supabase.auth.signInWithPassword(
-        email: email,
+        email: email.trim().toLowerCase(),
         password: password,
       );
-      
+
+      if (res.session == null) {
+        throw const AuthException(
+          'Sign-in did not return a session. Please try again.',
+        );
+      }
       _authUser = res.session?.user;
       if (_authUser != null) {
         await _loadUserData();
@@ -238,19 +253,31 @@ class AuthProvider extends ChangeNotifier {
       }
     } catch (e) {
       _isLoading = false;
-      notifyListeners();
+      _notify();
       rethrow;
     }
   }
 
   Future<void> signOut() async {
-    await _supabase.auth.signOut();
+    _generation++;
+    _pendingLoad = null;
+    _loadingUserId = null;
+    AppCache().invalidateAll();
     _authUser = null;
     _currentUser = null;
     _folderMemberships = [];
     _folderPermissions = {};
     _permissionEngine = null;
     _isLoading = false;
-    notifyListeners();
+    _notify();
+    await _supabase.auth.signOut();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _authSubscription?.cancel();
+    super.dispose();
   }
 }

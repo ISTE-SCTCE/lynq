@@ -23,7 +23,15 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _emailError;
   String? _passwordError;
 
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   Future<void> _handleLogin() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
@@ -49,7 +57,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (hasError) return;
 
-    setState(() { _isLoading = true; });
+    setState(() {
+      _isLoading = true;
+    });
     try {
       await context.read<AuthProvider>().signIn(email, password);
     } on AuthException catch (e) {
@@ -63,9 +73,12 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         String msg = e.toString();
-        if (msg.startsWith('Exception: ')) msg = msg.replaceFirst('Exception: ', '');
-        if (e is PostgrestException) {
-          msg = 'Database error (${e.code}): ${e.message}';
+        if (msg.startsWith('Exception: '))
+          msg = msg.replaceFirst('Exception: ', '');
+        if (e is! AuthException) {
+          msg =
+              context.read<AuthProvider>().error ??
+              'Unable to sign in. Please check your connection and try again.';
         }
         setState(() {
           _error = msg;
@@ -80,6 +93,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final error = _error ?? context.watch<AuthProvider>().error;
     return Scaffold(
       backgroundColor: AppTheme.darkGreen,
       body: SafeArea(
@@ -138,18 +152,23 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: Icons.lock_outline,
                         errorText: _passwordError,
                       ),
-                      if (_error != null) ...[
+                      if (error != null) ...[
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: Colors.red.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                            border: Border.all(
+                              color: Colors.red.withValues(alpha: 0.3),
+                            ),
                           ),
                           child: Text(
-                            _error!,
-                            style: GoogleFonts.inter(fontSize: 13, color: Colors.red[300]),
+                            error,
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: Colors.red[300],
+                            ),
                           ),
                         ),
                       ],

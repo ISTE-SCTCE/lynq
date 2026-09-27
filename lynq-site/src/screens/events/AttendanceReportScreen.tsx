@@ -25,6 +25,7 @@ export const AttendanceReportScreen: React.FC = () => {
 
   const [event, setEvent] = useState<EventModel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [attendanceByDay, setAttendanceByDay] = useState<Record<number, AttendeeLog[]>>({});
   const [activeTabDay, setActiveTabDay] = useState<number>(1);
   const numDays = event?.num_days || 1;
@@ -32,6 +33,7 @@ export const AttendanceReportScreen: React.FC = () => {
   const loadAttendance = async () => {
     if (!id) return;
     setIsLoading(true);
+    setLoadError(null);
     try {
       // 1. Fetch Event Info
       const { data: eventRow, error: eErr } = await supabase
@@ -41,9 +43,8 @@ export const AttendanceReportScreen: React.FC = () => {
         .maybeSingle();
 
       if (eErr) throw eErr;
-      if (eventRow) {
-        setEvent(eventRow as EventModel);
-      }
+      if (!eventRow) throw new Error('Event not found or you do not have access.');
+      setEvent(eventRow as EventModel);
 
       // 2. Fetch Attendance Rows
       const { data: attendanceRows, error: aErr } = await supabase
@@ -95,6 +96,8 @@ export const AttendanceReportScreen: React.FC = () => {
       setAttendanceByDay(grouped);
     } catch (e) {
       console.error('Error loading attendance report:', e);
+      setAttendanceByDay({});
+      setLoadError(e instanceof Error ? e.message : 'Attendance could not be loaded. Please retry.');
     } finally {
       setIsLoading(false);
     }
@@ -159,7 +162,7 @@ export const AttendanceReportScreen: React.FC = () => {
           Attendance Report
         </h2>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-          <button onClick={handleExportCSV} className="role-filter-chip active" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', background: 'rgb(22, 192, 122)', border: 'none', color: 'white', padding: '8px 16px' }}>
+          <button disabled={isLoading || !!loadError} onClick={handleExportCSV} className="role-filter-chip active" style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', background: 'rgb(22, 192, 122)', border: 'none', color: 'white', padding: '8px 16px' }}>
             <Download size={14} /> Export CSV
           </button>
           {!isLoading && (
@@ -170,7 +173,7 @@ export const AttendanceReportScreen: React.FC = () => {
         </div>
       </header>
 
-      {isLoading ? (
+      {loadError ? <div role="alert">{loadError} Use refresh to retry.</div> : isLoading ? (
         <div className="flex-center" style={{ height: '300px', flexDirection: 'column', gap: '12px' }}>
           <Loader size={32} className="spinner" />
           <span>Loading attendance data...</span>

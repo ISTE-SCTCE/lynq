@@ -1,0 +1,1089 @@
+{
+  "capturedAt": "2026-09-27",
+  "sourceProject": "vwxbgklgkcbwrvtwypfs",
+  "destinationProject": "ysllolnoyezfdllqocgv",
+  "containsUserData": false,
+  "sourceTables": [
+    {
+      "schema": "auth",
+      "name": "audit_log_entries",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "custom_oauth_providers",
+      "kind": "r",
+      "bytes": 57344
+    },
+    {
+      "schema": "auth",
+      "name": "flow_state",
+      "kind": "r",
+      "bytes": 81920
+    },
+    {
+      "schema": "auth",
+      "name": "identities",
+      "kind": "r",
+      "bytes": 147456
+    },
+    {
+      "schema": "auth",
+      "name": "instances",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_amr_claims",
+      "kind": "r",
+      "bytes": 122880
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_challenges",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_factors",
+      "kind": "r",
+      "bytes": 57344
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_recovery_code_sets",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_recovery_codes",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_authorizations",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_client_states",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_clients",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_consents",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "auth",
+      "name": "one_time_tokens",
+      "kind": "r",
+      "bytes": 147456
+    },
+    {
+      "schema": "auth",
+      "name": "refresh_tokens",
+      "kind": "r",
+      "bytes": 360448
+    },
+    {
+      "schema": "auth",
+      "name": "saml_providers",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "saml_relay_states",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "auth",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "scim_tokens",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "auth",
+      "name": "scim_users",
+      "kind": "r",
+      "bytes": 90112
+    },
+    {
+      "schema": "auth",
+      "name": "sessions",
+      "kind": "r",
+      "bytes": 196608
+    },
+    {
+      "schema": "auth",
+      "name": "sso_domains",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "sso_providers",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "users",
+      "kind": "r",
+      "bytes": 278528
+    },
+    {
+      "schema": "auth",
+      "name": "webauthn_challenges",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "webauthn_credentials",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "identity",
+      "name": "applications",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "identity",
+      "name": "memberships",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "identity",
+      "name": "migration_identity_map",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "identity",
+      "name": "role_definitions",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "identity",
+      "name": "user_app_access",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "identity",
+      "name": "user_change_log",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "identity",
+      "name": "user_role_assignments",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "identity",
+      "name": "users",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "announcements",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "attendance",
+      "kind": "r",
+      "bytes": 57344
+    },
+    {
+      "schema": "public",
+      "name": "budget_categories",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "budget_requests",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "certificates",
+      "kind": "r",
+      "bytes": 196608
+    },
+    {
+      "schema": "public",
+      "name": "event_budgets",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "event_reports",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "event_seat_reservations",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "events",
+      "kind": "r",
+      "bytes": 90112
+    },
+    {
+      "schema": "public",
+      "name": "financial_income",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "financial_ledger",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "folder_members",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "folder_permissions",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "folders",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "forum_budgets",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "global_feature_permissions",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "iste_members",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "ledger_change_history",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "leetcode",
+      "kind": "r",
+      "bytes": 253952
+    },
+    {
+      "schema": "public",
+      "name": "leetlaunch_reservations",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "leetlaunch_seats",
+      "kind": "r",
+      "bytes": 81920
+    },
+    {
+      "schema": "public",
+      "name": "mechamotion_registrations",
+      "kind": "r",
+      "bytes": 73728
+    },
+    {
+      "schema": "public",
+      "name": "mechamotion_seat_reservations",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "mechamotion_seats",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "membership_registrations",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "public",
+      "name": "messages",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "mozibot_registrations",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "mozibot_seat_reservations",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "mozibot_seats",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "profiles",
+      "kind": "r",
+      "bytes": 204800
+    },
+    {
+      "schema": "public",
+      "name": "qr_tokens",
+      "kind": "r",
+      "bytes": 114688
+    },
+    {
+      "schema": "public",
+      "name": "registration_queue",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "seat_inventory",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "subtasks",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "task_proofs",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "tasks",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "users_iste_verification",
+      "kind": "r",
+      "bytes": 98304
+    },
+    {
+      "schema": "realtime",
+      "name": "messages",
+      "kind": "p",
+      "bytes": 0
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_22",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_23",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_24",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_25",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_26",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_27",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_28",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "subscription",
+      "kind": "r",
+      "bytes": 106496
+    },
+    {
+      "schema": "storage",
+      "name": "buckets",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "storage",
+      "name": "buckets_analytics",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "storage",
+      "name": "buckets_vectors",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "storage",
+      "name": "migrations",
+      "kind": "r",
+      "bytes": 73728
+    },
+    {
+      "schema": "storage",
+      "name": "objects",
+      "kind": "r",
+      "bytes": 442368
+    },
+    {
+      "schema": "storage",
+      "name": "s3_multipart_uploads",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "storage",
+      "name": "s3_multipart_uploads_parts",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "storage",
+      "name": "vector_indexes",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "supabase_migrations",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 172032
+    },
+    {
+      "schema": "vault",
+      "name": "secrets",
+      "kind": "r",
+      "bytes": 24576
+    }
+  ],
+  "destinationTables": [
+    {
+      "schema": "auth",
+      "name": "audit_log_entries",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "custom_oauth_providers",
+      "kind": "r",
+      "bytes": 57344
+    },
+    {
+      "schema": "auth",
+      "name": "flow_state",
+      "kind": "r",
+      "bytes": 147456
+    },
+    {
+      "schema": "auth",
+      "name": "identities",
+      "kind": "r",
+      "bytes": 376832
+    },
+    {
+      "schema": "auth",
+      "name": "instances",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_amr_claims",
+      "kind": "r",
+      "bytes": 352256
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_challenges",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_factors",
+      "kind": "r",
+      "bytes": 57344
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_recovery_code_sets",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "mfa_recovery_codes",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_authorizations",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_client_states",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_clients",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "oauth_consents",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "auth",
+      "name": "one_time_tokens",
+      "kind": "r",
+      "bytes": 147456
+    },
+    {
+      "schema": "auth",
+      "name": "refresh_tokens",
+      "kind": "r",
+      "bytes": 1507328
+    },
+    {
+      "schema": "auth",
+      "name": "saml_providers",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "saml_relay_states",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "auth",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "auth",
+      "name": "scim_tokens",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "auth",
+      "name": "scim_users",
+      "kind": "r",
+      "bytes": 90112
+    },
+    {
+      "schema": "auth",
+      "name": "sessions",
+      "kind": "r",
+      "bytes": 532480
+    },
+    {
+      "schema": "auth",
+      "name": "sso_domains",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "sso_providers",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "users",
+      "kind": "r",
+      "bytes": 548864
+    },
+    {
+      "schema": "auth",
+      "name": "webauthn_challenges",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "auth",
+      "name": "webauthn_credentials",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "academy_folders",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "academy_lectures",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "access_logs",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "public",
+      "name": "admins",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "app_config",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "broadcast_notifications",
+      "kind": "r",
+      "bytes": 73728
+    },
+    {
+      "schema": "public",
+      "name": "connect_alumni_profiles",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "connect_event_registrations",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "connect_events",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "connect_opportunities",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "connect_profiles",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "connect_requests",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "connect_student_profiles",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "content",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "event_cal",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "event_concept_votes",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "public",
+      "name": "event_concepts",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "events",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "forum_answers",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "forum_questions",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "forum_votes",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "public",
+      "name": "interaction_logs",
+      "kind": "r",
+      "bytes": 352256
+    },
+    {
+      "schema": "public",
+      "name": "marketplace_listing_views",
+      "kind": "r",
+      "bytes": 73728
+    },
+    {
+      "schema": "public",
+      "name": "marketplace_listings",
+      "kind": "r",
+      "bytes": 81920
+    },
+    {
+      "schema": "public",
+      "name": "marketplace_orders",
+      "kind": "r",
+      "bytes": 98304
+    },
+    {
+      "schema": "public",
+      "name": "note_folders",
+      "kind": "r",
+      "bytes": 139264
+    },
+    {
+      "schema": "public",
+      "name": "note_views",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "public",
+      "name": "notes",
+      "kind": "r",
+      "bytes": 122880
+    },
+    {
+      "schema": "public",
+      "name": "notifications",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "offenso_participants",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "payment_settings",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "pending_notes",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "pending_projects",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "profiles",
+      "kind": "r",
+      "bytes": 311296
+    },
+    {
+      "schema": "public",
+      "name": "project_applications",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "public",
+      "name": "projects",
+      "kind": "r",
+      "bytes": 32768
+    },
+    {
+      "schema": "public",
+      "name": "registrations",
+      "kind": "r",
+      "bytes": 81920
+    },
+    {
+      "schema": "public",
+      "name": "subjects",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "public",
+      "name": "user_sessions",
+      "kind": "r",
+      "bytes": 98304
+    },
+    {
+      "schema": "public",
+      "name": "xp_history",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "realtime",
+      "name": "messages",
+      "kind": "p",
+      "bytes": 0
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_23",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_24",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_25",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_26",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_27",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_28",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "messages_2026_09_29",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "realtime",
+      "name": "subscription",
+      "kind": "r",
+      "bytes": 114688
+    },
+    {
+      "schema": "storage",
+      "name": "buckets",
+      "kind": "r",
+      "bytes": 49152
+    },
+    {
+      "schema": "storage",
+      "name": "buckets_analytics",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "storage",
+      "name": "buckets_vectors",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "storage",
+      "name": "migrations",
+      "kind": "r",
+      "bytes": 40960
+    },
+    {
+      "schema": "storage",
+      "name": "objects",
+      "kind": "r",
+      "bytes": 204800
+    },
+    {
+      "schema": "storage",
+      "name": "s3_multipart_uploads",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "storage",
+      "name": "s3_multipart_uploads_parts",
+      "kind": "r",
+      "bytes": 16384
+    },
+    {
+      "schema": "storage",
+      "name": "vector_indexes",
+      "kind": "r",
+      "bytes": 24576
+    },
+    {
+      "schema": "supabase_migrations",
+      "name": "schema_migrations",
+      "kind": "r",
+      "bytes": 65536
+    },
+    {
+      "schema": "vault",
+      "name": "secrets",
+      "kind": "r",
+      "bytes": 24576
+    }
+  ],
+  "overlappingApplicationTables": [
+    "public.events",
+    "public.profiles"
+  ],
+  "copyStatus": "not_started"
+}

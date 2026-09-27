@@ -58,13 +58,14 @@ export const NavBar: React.FC = () => {
   return (
     <>
       {/* Floating glass navigation bar */}
-      <nav className="liquid-glass-nav-bar">
+      <nav className="liquid-glass-nav-bar" aria-label="Main navigation">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeIndex === item.index;
           return (
             <button
               key={item.index}
+              aria-current={isActive ? 'page' : undefined}
               onClick={() => handleSelectTab(item.index)}
               className={`nav-item ${isActive ? 'active' : ''}`}
             >
@@ -98,7 +99,7 @@ export const NavBar: React.FC = () => {
           justify-content: space-around;
           padding: 0 8px;
           z-index: 1000;
-          transition: all 0.3s ease;
+          transition: background-color 0.3s ease, box-shadow 0.3s ease;
         }
 
         .nav-item {

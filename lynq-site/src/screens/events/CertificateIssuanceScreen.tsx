@@ -729,7 +729,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
     setConfirmModal({
       isOpen: true,
       title: 'Publish Automated Certificates',
-      description: `Ready to issue and send certificates from presentation template directly to ${toPublish.length} matched attendee(s)? Each student will receive their certificate in their m-Lynq account immediately. Attendance will also be marked automatically.`,
+      description: `Ready to issue certificates from the presentation template to ${toPublish.length} matched attendee(s)? This publishes certificates only. It does not change event attendance; attendance must be recorded for the correct event day separately.`,
       recipients: toPublish.map(r => ({ student: r.matchedUser!.name || r.rawName, file: 'Presentation Template' })),
       onConfirm: () => {
         setConfirmModal(null);
@@ -770,12 +770,8 @@ export const CertificateIssuanceScreen: React.FC = () => {
         }, { onConflict: 'user_id,event_id' });
 
         if (!error) {
-          try {
-            await supabase.from('attendance').upsert({
-              event_id: parseInt(id!),
-              user_id: uid,
-            }, { onConflict: 'event_id,user_id' });
-          } catch (_) {}
+          // Imported certificate recipient lists have no validated attendance day.
+          // Do not synthesize check-ins or silently ignore a failed attendance write.
 
           successCount++;
           setProcessedCount(i + 1);
@@ -1241,12 +1237,7 @@ export const CertificateIssuanceScreen: React.FC = () => {
           issued_at: new Date().toISOString(),
         }, { onConflict: 'event_id,user_id' });
 
-        try {
-          await supabase.from('attendance').upsert({
-            event_id: parseInt(id!),
-            user_id: matchedUser.user_id,
-          }, { onConflict: 'event_id,user_id' });
-        } catch (_) {}
+        // Issuing a certificate without attendance must not fabricate a check-in.
 
         if (!certError) {
           successCount++;

@@ -5,6 +5,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useAuth } from '../../core/auth-provider';
 import { supabase } from '../../core/supabase-client';
 import { GlassCard } from '../../shared/components/GlassCard';
+import { parsePositiveInteger, isFreshQrTimestamp, isValidAttendanceDay } from './scan-validation';
 
 interface ScanResult {
   success: boolean;
@@ -48,17 +49,45 @@ async function decryptPayload(code: string): Promise<string> {
 
 export const QrScannerScreen: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const eventIdStr = searchParams.get('eventId');
-  const eventId = eventIdStr ? parseInt(eventIdStr) : null;
+  const eventId = parsePositiveInteger(eventIdStr);
+  const dayNumber = parsePositiveInteger(searchParams.get('dayNumber') ?? '1') ?? 0;
   const { currentUser } = useAuth();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [eventOptions, setEventOptions] = useState<{ id: number; title: string; num_days: number | null }[]>([]);
+  const [eventLoadError, setEventLoadError] = useState<string | null>(null);
+  const selectedOption = eventOptions.find(event => event.id === eventId);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadEventOptions() {
+      setEventLoadError(null);
+      const { data, error } = await supabase.from('events')
+        .select('id, title, num_days').order('date', { ascending: false }).limit(100);
+      if (cancelled) return;
+      if (error) { setEventLoadError('Unable to load events. Reopen the scanner to retry.'); return; }
+      const options = data || [];
+      // A deep link may target an event outside the latest 100.
+      if (eventId && !options.some(event => event.id === eventId)) {
+        const { data: linkedEvent } = await supabase.from('events')
+          .select('id, title, num_days').eq('id', eventId).maybeSingle();
+        if (linkedEvent) options.unshift(linkedEvent);
+      }
+      if (!cancelled) setEventOptions(options);
+    }
+    void loadEventOptions();
+    return () => { cancelled = true; };
+  }, [eventId]);
 
   const qrRef = useRef<Html5Qrcode | null>(null);
+  const processingRef = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processQrRef = useRef<(code: string) => Promise<void>>(async () => {});
 
   useEffect(() => {
     // Initialise and start scanner
@@ -78,7 +107,7 @@ export const QrScannerScreen: React.FC = () => {
             }
           },
           (decodedText) => {
-            handleProcessQr(decodedText);
+            void processQrRef.current(decodedText);
           },
           () => {
             // Silence silent scan failure messages
@@ -94,6 +123,7 @@ export const QrScannerScreen: React.FC = () => {
     startScanner();
 
     return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
       if (qrRef.current && qrRef.current.isScanning) {
         qrRef.current.stop()
           .then(() => console.log("Scanner stopped"))
@@ -103,10 +133,22 @@ export const QrScannerScreen: React.FC = () => {
   }, []);
 
   const handleProcessQr = async (code: string) => {
-    if (isProcessing) return;
+    // Scanner callbacks outlive renders; React state alone is not a mutex.
+    if (processingRef.current) return;
+    processingRef.current = true;
     setIsProcessing(true);
 
     try {
+      if (!currentUser || !eventId || !Number.isSafeInteger(eventId) ||
+          !Number.isSafeInteger(dayNumber) || dayNumber < 1) {
+        throw new Error('Sign in and select a valid event and attendance day before scanning.');
+      }
+      const { data: selectedEvent, error: eventError } = await supabase
+        .from('events').select('id, num_days').eq('id', eventId).single();
+      if (eventError) throw eventError;
+      if (!selectedEvent || !isValidAttendanceDay(dayNumber, selectedEvent.num_days || 1)) {
+        throw new Error('The selected attendance day does not belong to this event.');
+      }
       // 1. JSON / AES-256-GCM decoding
       let payload: any;
       try {
@@ -125,15 +167,15 @@ export const QrScannerScreen: React.FC = () => {
       const token = payload.token;
       const ts = payload.ts;
 
-      if (!uid || !token || !ts) {
+      if (typeof uid !== 'string' || !uid || typeof token !== 'string' || !token ||
+          typeof ts !== 'number' || !Number.isFinite(ts)) {
         setLastResult({ success: false, message: 'Malformed attendance credentials.' });
         setIsProcessing(false);
         return;
       }
 
       // 2. Validate token is not older than 30s
-      const ageInSeconds = (Date.now() - ts) / 1000;
-      if (ageInSeconds > 30) {
+      if (!isFreshQrTimestamp(ts)) {
         setLastResult({ success: false, message: 'QR code expired. Please refresh mobile app.' });
         setIsProcessing(false);
         return;
@@ -160,12 +202,15 @@ export const QrScannerScreen: React.FC = () => {
 
       // 4. Duplicate attendance checks
       if (eventId !== null) {
-        const { data: existingData } = await supabase
+        const { data: existingData, error: duplicateError } = await supabase
           .from('attendance')
           .select('id')
           .eq('event_id', eventId)
           .eq('user_id', uid)
+          .eq('day_number', dayNumber)
           .limit(1);
+
+        if (duplicateError) throw duplicateError;
 
         if (existingData && existingData.length > 0) {
           const { data: userRow } = await supabase
@@ -197,16 +242,22 @@ export const QrScannerScreen: React.FC = () => {
           user_id: uid,
           scanned_by: currentUser.id,
           qr_token_id: tokenId,
+          day_number: dayNumber,
         });
 
         if (attError) throw attError;
       }
 
       // 7. Set token as used
-      await supabase
+      const { error: consumeError } = await supabase
         .from('qr_tokens')
         .update({ is_used: true })
         .eq('id', tokenId);
+
+      if (consumeError) {
+        setLastResult({ success: false, message: 'Attendance was saved, but QR token cleanup failed. Check the attendance report before retrying.' });
+        return;
+      }
 
       setLastResult({
         success: true,
@@ -221,11 +272,13 @@ export const QrScannerScreen: React.FC = () => {
     } finally {
       setIsProcessing(false);
       // Reset scanning window in 3.5 seconds
-      setTimeout(() => {
+      resetTimerRef.current = setTimeout(() => {
         setLastResult(null);
+        processingRef.current = false;
       }, 3500);
     }
   };
+  processQrRef.current = handleProcessQr;
 
   return (
     <div className="scanner-container">
@@ -239,6 +292,30 @@ export const QrScannerScreen: React.FC = () => {
         </span>
         <div style={{ width: '20px' }}></div>
       </header>
+
+      <div className="scan-event-controls" style={{ position: 'absolute', top: 68, left: 16, right: 16, zIndex: 101, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.8)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label style={{ flex: '1 1 180px', minWidth: 0 }}>
+          Event
+          <select aria-label="Attendance event" value={selectedOption ? String(eventId) : ''} disabled={isProcessing} onChange={e => {
+            setSearchParams(e.target.value ? { eventId: e.target.value, dayNumber: '1' } : {});
+            setLastResult(null);
+          }} style={{ display: 'block', width: '100%', padding: 8, color: '#fff', background: '#202020' }}>
+            <option value="">Select an event before scanning</option>
+            {eventOptions.map(event => <option key={event.id} value={event.id}>{event.title}</option>)}
+          </select>
+        </label>
+        <label>
+          Day
+          <select aria-label="Attendance day" value={dayNumber} disabled={!selectedOption || isProcessing} onChange={e => {
+            if (eventId) setSearchParams({ eventId: String(eventId), dayNumber: e.target.value });
+            setLastResult(null);
+          }} style={{ display: 'block', padding: 8, color: '#fff', background: '#202020' }}>
+            {!isValidAttendanceDay(dayNumber, selectedOption?.num_days || 1) && <option value={dayNumber}>Select day</option>}
+            {Array.from({ length: Math.max(1, selectedOption?.num_days || 1) }, (_, index) => <option key={index + 1} value={index + 1}>Day {index + 1}</option>)}
+          </select>
+        </label>
+        {eventLoadError && <p role="alert" style={{ width: '100%', margin: 0 }}>{eventLoadError}</p>}
+      </div>
 
       {/* Reader box container */}
       <div className="camera-view-port">

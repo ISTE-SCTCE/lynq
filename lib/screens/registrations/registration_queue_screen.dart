@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'dart:io';
 import 'dart:convert';
@@ -10,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../core/auth_provider.dart';
+import '../../core/membership_id.dart';
 import '../../models/task_models.dart';
 import '../../shared/widgets/custom_text_field.dart';
 import '../../shared/widgets/glass_card.dart';
@@ -42,12 +44,13 @@ class _RegistrationQueueScreenState extends State<RegistrationQueueScreen>
   int _totalMembers = 0;
   String _searchQuery = '';
 
-  final _tabs = ['Pending', 'Payment', 'Approved', 'Rejected', 'Excel Intake'];
+  final _tabs = ['Pending', 'Approved', 'Rejected'];
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this, initialIndex: widget.initialIndex);
+    _tabController = TabController(length: 3, vsync: this, initialIndex: widget.initialIndex);
     
     if (widget.initialGroupedData != null) {
       _grouped = widget.initialGroupedData!;
@@ -56,20 +59,14 @@ class _RegistrationQueueScreenState extends State<RegistrationQueueScreen>
       _loadQueue();
     }
 
-    // Realtime subscription for new registrations
-    _supabase
-        .channel('registration_queue')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'registration_queue',
-          callback: (_) => _loadQueue(),
-        )
-        .subscribe();
+    // The intake endpoint is protected, so the app refreshes its small queue
+    // automatically instead of exposing registrations to the public data API.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadQueue());
   }
 
   @override
   void dispose() {
+    _refreshTimer?.cancel();
     _tabController.dispose();
     super.dispose();
   }
@@ -96,17 +93,6 @@ class _RegistrationQueueScreenState extends State<RegistrationQueueScreen>
       appBar: AppBar(
         title: Text('Registration Queue', style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
         actions: [
-          if (_isSyncing)
-            const Padding(
-              padding: EdgeInsets.only(right: 16.0),
-              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.sync_rounded),
-              tooltip: 'Sync from Google Sheets',
-              onPressed: _syncFromGoogleSheets,
-            ),
           IconButton(
             icon: const Icon(Icons.file_download_rounded),
             tooltip: 'Export Approved Members',
@@ -181,51 +167,6 @@ class _RegistrationQueueScreenState extends State<RegistrationQueueScreen>
         onAction: _loadQueue,
       ),
     );
-  }
-
-  Future<void> _syncFromGoogleSheets() async {
-    setState(() => _isSyncing = true);
-    int added = 0;
-    try {
-      final sheetsList = _grouped['Excel Intake'] ?? [];
-      final existingQueue = await _supabase.from('registration_queue').select('email');
-      final existingEmails = existingQueue.map((e) => e['email'].toString().toLowerCase()).toSet();
-
-      for (var row in sheetsList) {
-        if (!existingEmails.contains(row.email.toLowerCase())) {
-          await _supabase.from('registration_queue').insert({
-            'name': row.name,
-            'email': row.email,
-            'phone': row.phone,
-            'branch': row.branch,
-            'year': row.year,
-            'membership_type': row.membershipType,
-            'payment_status': 'paid', // Based on the macro assumptions
-            'roll_number': row.rollNumber,
-            'source': 'Google Sheet Excel',
-            'status': 'pending', // Set to pending for manual review
-            'created_at': row.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
-            'raw_data': row.rawData,
-          });
-          added++;
-        }
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Synced successfully. Added $added new registrations.'), backgroundColor: Colors.green),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sync failed: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      setState(() => _isSyncing = false);
-      _loadQueue();
-    }
   }
 
   Future<void> _exportExcel() async {
@@ -395,6 +336,7 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
   bool _isProcessing = false;
 
   final _isteIdCtrl = TextEditingController();
+  String? _membershipIdError;
 
   @override
   void dispose() {
@@ -461,40 +403,24 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
               _detailRow(Icons.payments_rounded, 'Payment', reg.paymentStatus),
               _detailRow(Icons.source_rounded, 'Source', reg.source),
               
-              if (reg.status == 'pending' || reg.status == 'payment_pending' || reg.status == 'excel_intake') ...[
-                const SizedBox(height: 24),
-                CustomTextField(
-                  label: 'Assign ISTE Membership ID',
+               // Action buttons
+               if (reg.status == 'pending') ...[
+                TextField(
                   controller: _isteIdCtrl,
-                  prefixIcon: Icons.badge_outlined,
-                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                  enabled: !_isProcessing,
+                  textCapitalization: TextCapitalization.characters,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: 'Official ISTE membership ID',
+                    hintText: 'KE104010',
+                    helperText: 'Required to approve. Enter the ID issued by ISTE.',
+                    errorText: _membershipIdError,
+                  ),
                 ),
-                const SizedBox(height: 24),
-              ],
-              
-              // Action buttons
-              if (reg.status == 'pending' || reg.status == 'payment_pending' || reg.status == 'excel_intake') ...[
+                const SizedBox(height: 20),
                 _isProcessing
                     ? const Center(child: CircularProgressIndicator())
-                    : reg.status == 'excel_intake'
-                        ? SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _handleApproveExcelIntake,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.darkGreen,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                elevation: 0,
-                              ),
-                              icon: const Icon(Icons.check_rounded, size: 18),
-                              label: Text('Import & Approve Member',
-                                  style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
-                            ),
-                          )
-                        : Column(
+                    : Column(
                             children: [
                               Row(
                                 children: [
@@ -532,23 +458,6 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _action('payment_pending'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppTheme.secondary,
-                                    side: BorderSide(color: AppTheme.secondary.withValues(alpha: 0.5)),
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12)),
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                  ),
-                                  icon: const Icon(Icons.schedule_rounded, size: 18),
-                                  label: Text('Mark Payment Pending',
-                                      style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.bold)),
-                                ),
-                              ),
                             ],
                           ),
               ],
@@ -580,107 +489,28 @@ class _RegistrationDetailSheetState extends State<_RegistrationDetailSheet> {
     );
   }
 
-  Future<void> _handleApproveExcelIntake() async {
-    final auth = context.read<AuthProvider>();
-    setState(() => _isProcessing = true);
-    try {
-      final reg = widget.registration;
-      final rawMembership = reg.rawData['raw_membership'] ?? '649';
-      final rawForum = reg.rawData['raw_forum'] ?? 'None Selected';
-
-      final isteId = _isteIdCtrl.text.trim();
-      if (isteId.isEmpty) {
-        throw Exception('ISTE Membership ID is required to approve.');
-      }
-
-      String plan = '1 Year';
-      if (rawMembership == '1199') plan = '2 Year';
-      else if (rawMembership == '1499') plan = '3 Year';
-
-      String? forum;
-      if (rawForum != 'None Selected' && rawForum != 'None') {
-        forum = rawForum.split(' ')[0];
-      }
-
-      // Instead of edge function, we directly insert into the new members table as requested
-      await _supabase.from('profiles').insert({
-        'iste_membership_id': isteId,
-        'name': reg.name,
-        'email': reg.email,
-        'phone': reg.phone,
-        'branch': reg.branch,
-        'role': 'member',
-        'status': 'active',
-        'is_iste_member': true,
-      });
-
-      // Insert was successful since no exception was thrown.
-
-      await _supabase.from('registration_queue').insert({
-        'name': reg.name,
-        'email': reg.email,
-        'phone': reg.phone,
-        'branch': reg.branch,
-        'year': reg.year,
-        'membership_type': reg.membershipType,
-        'payment_status': 'paid',
-        'roll_number': reg.rollNumber,
-        'source': 'Google Sheet Excel',
-        'status': 'approved',
-        'reviewed_by': auth.authUser?.id,
-        'reviewed_at': DateTime.now().toIso8601String(),
-        'created_at': reg.createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      });
-
-      widget.onAction();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Member "${reg.name}" successfully imported and approved!'), backgroundColor: AppTheme.darkGreen),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Approval failed: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
-    }
-  }
-
   Future<void> _action(String status) async {
-    final auth = context.read<AuthProvider>();
+    if (_isProcessing) return;
+    final membershipId = normalizeMembershipId(_isteIdCtrl.text);
+    if (status == 'approved' && !isOfficialMembershipId(membershipId)) {
+      setState(() => _membershipIdError = 'Use KE104 followed by three digits.');
+      return;
+    }
+    setState(() => _membershipIdError = null);
     setState(() => _isProcessing = true);
     try {
-      if (status == 'approved') {
-        final isteId = _isteIdCtrl.text.trim();
-        if (isteId.isEmpty) {
-          throw Exception('ISTE Membership ID is required to approve.');
-        }
-
-        String plan = '1 Year';
-        if (widget.registration.membershipType.contains('1199')) plan = '2 Year';
-        else if (widget.registration.membershipType.contains('1499')) plan = '3 Year';
-
-        await _supabase.from('profiles').insert({
-          'iste_membership_id': isteId,
-          'name': widget.registration.name,
-          'email': widget.registration.email,
-          'phone': widget.registration.phone,
-          'branch': widget.registration.branch,
-          'role': 'member',
-          'status': 'active',
-          'is_iste_member': true,
-        });
+      final registrationId =
+          widget.registration.rawData['central_registration_id']?.toString();
+      if (registrationId == null || registrationId.isEmpty) {
+        throw Exception('This legacy registration cannot be reviewed here.');
       }
 
-      await _supabase.from('registration_queue').update({
-        'status': status,
-        'reviewed_by': auth.authUser?.id,
-        'reviewed_at': DateTime.now().toIso8601String(),
-      }).eq('id', widget.registration.id);
+      await RegistrationService.reviewRegistration(
+        _supabase,
+        registrationId: registrationId,
+        status: status,
+        membershipId: status == 'approved' ? membershipId : null,
+      );
 
       widget.onAction();
       if (mounted) Navigator.pop(context);
